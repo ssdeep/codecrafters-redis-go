@@ -41,5 +41,5 @@ func handleConnection(a net.Conn) {
 		fmt.Println("Error reading command: ", err.Error())
 	}
 	fmt.Printf("read: %s \n", string(command))
-	a.Write([]byte("PONG"))
+	a.Write([]byte("+PONG\r\n"))
 }
