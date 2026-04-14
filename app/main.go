@@ -33,13 +33,16 @@ func main() {
 }
 
 func handleConnection(a net.Conn) {
-	defer a.Close()
+
 	fmt.Println("Connected")
-	command := make([]byte, 1024)
-	_, err := a.Read(command)
-	if err != nil {
-		fmt.Println("Error reading command: ", err.Error())
+	for {
+		command := make([]byte, 1024)
+		_, err := a.Read(command)
+		if err != nil {
+			fmt.Println("Error reading command: ", err.Error())
+			break
+		}
+		fmt.Printf("read: %s \n", string(command))
+		a.Write([]byte("+PONG\r\n"))
 	}
-	fmt.Printf("read: %s \n", string(command))
-	a.Write([]byte("+PONG\r\n"))
 }
