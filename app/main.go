@@ -38,21 +38,21 @@ func main() {
 func handleConnection(a net.Conn) {
 
 	fmt.Println("Connected")
-	//for {
+	for {
 
-	word, err := resp.Parse(a)
-	if err != nil {
-		fmt.Println("Error parsing: ", err.Error())
-		return
+		word, err := resp.Parse(a)
+		if err != nil {
+			fmt.Println("Error parsing: ", err.Error())
+			return
+		}
+
+		if word == "PING" {
+			a.Write([]byte("+PONG\r\n"))
+		} else if strings.HasPrefix(word, "ECHO") {
+			word = word[5:]
+			a.Write(resp.EncodeBulkString(word))
+		}
+		fmt.Printf("Received: %s\n", word)
+
 	}
-
-	if word == "PING" {
-		a.Write([]byte("+PONG\r\n"))
-	} else if strings.HasPrefix(word, "ECHO") {
-		word = word[5:]
-		a.Write(resp.EncodeBulkString(word))
-	}
-	fmt.Printf("Received: %s\n", word)
-
-	//}
 }
