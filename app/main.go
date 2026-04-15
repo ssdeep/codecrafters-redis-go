@@ -47,7 +47,7 @@ func handleConnection(a net.Conn) {
 	}
 
 	if word == "PING" {
-		a.Write(resp.EncodeBulkString("PONG"))
+		a.Write([]byte("+PONG\r\n"))
 	} else if strings.HasPrefix(word, "ECHO") {
 		word = word[5:]
 		a.Write(resp.EncodeBulkString(word))
