@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 
 	"github.com/codecrafters-io/redis-starter-go/internal/resp"
 )
@@ -44,7 +45,14 @@ func handleConnection(a net.Conn) {
 		fmt.Println("Error parsing: ", err.Error())
 		return
 	}
+
+	if word == "PING" {
+		a.Write(resp.EncodeBulkString("PONG"))
+	} else if strings.HasPrefix(word, "ECHO") {
+		word = word[5:]
+		a.Write(resp.EncodeBulkString(word))
+	}
 	fmt.Printf("Received: %s\n", word)
-	a.Write(resp.EncodeBulkString(word))
+
 	//}
 }
