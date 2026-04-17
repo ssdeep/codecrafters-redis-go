@@ -316,7 +316,8 @@ func Type(b byte) RespDataTypeParser {
 
 func ParseLine(line []byte) (string, error) {
 	strType := Type(line[0])
-	return strType.Parse(line)
+	word, err := strType.Parse(line)
+	return word, err
 }
 
 func Parse(con net.Conn) (string, error) {
