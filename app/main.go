@@ -78,7 +78,8 @@ func handleConnection(a net.Conn) {
 				argSize := len(cmds)
 				var exp int64
 				if argSize > 3 {
-					exp, _ = strconv.ParseInt(cmds[3], 10, 64)
+					exp, _ = strconv.ParseInt(cmds[4], 10, 64)
+					fmt.Println("Expiring ", cmds[1], " in ", exp)
 					exp = exp + time.Now().UnixMilli()
 				} else {
 					exp = -1
