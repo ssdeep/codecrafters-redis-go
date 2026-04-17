@@ -53,8 +53,8 @@ func handleConnection(a net.Conn) {
 		} else {
 			switch cmds[0] {
 			case "SET":
-				keyVals := strings.Split(cmds[1], " ")
-				storage[keyVals[0]] = keyVals[1]
+				fmt.Println("Setting ", cmds[1], " to ", cmds[2])
+				storage[cmds[1]] = cmds[2]
 				a.Write([]byte("+OK\r\n"))
 			case "GET":
 				if _, ok := storage[cmds[1]]; !ok {
