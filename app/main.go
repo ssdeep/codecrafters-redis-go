@@ -78,7 +78,12 @@ func handleConnection(a net.Conn) {
 				argSize := len(cmds)
 				var exp int64
 				if argSize > 3 {
-					exp, _ = strconv.ParseInt(cmds[4], 10, 64)
+					fmt.Println("Setting expiry for ", cmds[1], "at", cmds[4])
+					exp, err = strconv.ParseInt(strings.Trim(cmds[4], "\r"), 10, 64)
+					if err != nil {
+						fmt.Println("Error parsing expiry: ", err.Error())
+						return
+					}
 					fmt.Println("Expiring ", cmds[1], " in ", exp)
 					exp = exp + time.Now().UnixMilli()
 				} else {
