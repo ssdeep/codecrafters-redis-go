@@ -77,6 +77,7 @@ func handleConnection(a net.Conn) {
 				fmt.Println("Setting ", cmds[1], " to ", cmds[2])
 				argSize := len(cmds)
 				var exp int64
+				var expiryMs int64
 				if argSize > 3 {
 					fmt.Println("Setting expiry for ", cmds[1], "at", cmds[4])
 					exp, err = strconv.ParseInt(strings.Trim(cmds[4], "\r"), 10, 64)
@@ -84,12 +85,23 @@ func handleConnection(a net.Conn) {
 						fmt.Println("Error parsing expiry: ", err.Error())
 						return
 					}
-					fmt.Println("Expiring ", cmds[1], " in ", exp)
-					exp = exp + time.Now().UnixMilli()
+
+					switch cmds[3] {
+					case "PX":
+						expiryMs = exp
+					case "EX":
+						expiryMs = exp * 1000
+					default:
+						expiryMs = exp
+					}
+
+					fmt.Println("Expiring ", cmds[1], " in ", expiryMs, "ms")
+					expiryMs = expiryMs + time.Now().UnixMilli()
+
 				} else {
-					exp = -1
+					expiryMs = -1
 				}
-				storage[cmds[1]] = Value{cmds[2], exp}
+				storage[cmds[1]] = Value{cmds[2], expiryMs}
 				a.Write([]byte("+OK\r\n"))
 			case "GET":
 				if _, ok := storage[cmds[1]]; !ok {
