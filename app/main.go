@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/codecrafters-io/redis-starter-go/internal/resp"
@@ -20,17 +21,16 @@ type Value struct {
 	expiry int64
 }
 
-var storage = make(map[string]Value)
+var storage sync.Map
 
 func cleanup() {
 	for {
-		for k, v := range storage {
-			if v.expiry != -1 {
-				if v.expiry > time.Now().UnixMilli() {
-					delete(storage, k)
-				}
+		storage.Range(func(k, v any) bool {
+			if val := v.(Value); val.expiry != -1 && val.expiry < time.Now().UnixMilli() {
+				storage.Delete(k)
 			}
-		}
+			return true
+		})
 		time.Sleep(1 * time.Millisecond)
 	}
 }
@@ -53,17 +53,22 @@ func main() {
 			fmt.Println("Error accepting connection: ", err.Error())
 			os.Exit(1)
 		}
-		go handleConnection(a)
+		go handleConnection(a, &storage)
+
 	}
 }
 
-func handleConnection(a net.Conn) {
+func handleConnection(a net.Conn, storage *sync.Map) {
 
 	fmt.Println("Connected")
 	for {
 
 		word, err := resp.Parse(a)
-		if err != nil {
+		if err != nil && err.Error() == "EOF" {
+			fmt.Println("Connection closed")
+			a.Close()
+			return
+		} else if err != nil {
 			fmt.Println("Error parsing: ", err.Error())
 			return
 		}
@@ -72,6 +77,7 @@ func handleConnection(a net.Conn) {
 		if word == "PING" {
 			a.Write([]byte("+PONG\r\n"))
 		} else {
+			fmt.Println("Command: ", cmds)
 			switch cmds[0] {
 			case "SET":
 				fmt.Println("Setting ", cmds[1], " to ", cmds[2])
@@ -101,13 +107,16 @@ func handleConnection(a net.Conn) {
 				} else {
 					expiryMs = -1
 				}
-				storage[cmds[1]] = Value{cmds[2], expiryMs}
+				storage.Store(cmds[1], Value{cmds[2], expiryMs})
+				fmt.Println("Storage: ", storage)
 				a.Write([]byte("+OK\r\n"))
 			case "GET":
-				if _, ok := storage[cmds[1]]; !ok {
+				fmt.Println("Getting ", cmds[1])
+				fmt.Println("Storage: ", storage)
+				if v, ok := storage.Load(cmds[1]); !ok {
 					a.Write([]byte("$-1\r\n"))
 				} else {
-					a.Write(resp.EncodeBulkString(storage[cmds[1]].name))
+					a.Write(resp.EncodeBulkString(v.(Value).name))
 				}
 			case "ECHO":
 				a.Write(resp.EncodeBulkString(cmds[1]))
