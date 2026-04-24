@@ -108,6 +108,10 @@ func EncodeBulkString(s string) []byte {
 	return fmt.Appendf(nil, "$%d%s%s%s", len(data), CRLF, data, CRLF)
 }
 
+func (r IntegersParser) Encode(s int) []byte {
+	return fmt.Appendf(nil, ":%d%s", s, CRLF)
+}
+
 // NullBulkStringsParser handles $-1\r\n.
 func (r NullBulkStringsParser) Parse(_ []byte) (string, error) {
 	return "", nil

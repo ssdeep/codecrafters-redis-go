@@ -22,6 +22,7 @@ type Value struct {
 }
 
 var storage sync.Map
+var listStorage sync.Map
 
 func cleanup() {
 	for {
@@ -79,6 +80,13 @@ func handleConnection(a net.Conn, storage *sync.Map) {
 		} else {
 			fmt.Println("Command: ", cmds)
 			switch cmds[0] {
+			case "RPUSH":
+				fmt.Println("Pushing ", cmds[2], " to ", cmds[1])
+				list, _ := listStorage.LoadOrStore(cmds[1], []Value{})
+				list = append(list.([]Value), Value{cmds[2], -1})
+				listStorage.Store(cmds[1], list)
+				length := len(list.([]Value))
+				a.Write(resp.IntegersParser{}.Encode(length))
 			case "SET":
 				fmt.Println("Setting ", cmds[1], " to ", cmds[2])
 				argSize := len(cmds)
