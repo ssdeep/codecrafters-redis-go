@@ -83,7 +83,11 @@ func handleConnection(a net.Conn, storage *sync.Map) {
 			case "RPUSH":
 				fmt.Println("Pushing ", cmds[2], " to ", cmds[1])
 				list, _ := listStorage.LoadOrStore(cmds[1], []Value{})
-				list = append(list.([]Value), Value{cmds[2], -1})
+				var items []Value
+				for _, item := range cmds[2:] {
+					items = append(items, Value{item, -1})
+				}
+				list = append(list.([]Value), items...)
 				listStorage.Store(cmds[1], list)
 				length := len(list.([]Value))
 				a.Write(resp.IntegersParser{}.Encode(length))
