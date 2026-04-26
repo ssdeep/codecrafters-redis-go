@@ -32,6 +32,7 @@ var executors = map[string]Executor{
 	"LPUSH":  LPushExecutor{},
 	"LRANGE": LRangeExecutor{},
 	"LLEN":   LLenExecytor{},
+	"LPOP":   LPopExecutor{},
 }
 
 func Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
@@ -48,6 +49,8 @@ type RPushExecutor struct{}
 
 type LPushExecutor struct{}
 type LRangeExecutor struct{}
+
+type LPopExecutor struct{}
 
 type LLenExecytor struct{}
 
@@ -199,4 +202,13 @@ func (l LLenExecytor) Execute(cmds []string, con net.Conn, storage *sync.Map, li
 		l2 = list.New()
 	}
 	con.Write(resp.IntegersParser{}.Encode(l2.(*list.List).Len()))
+}
+
+func (l LPopExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
+	if l2, ok := listStorage.Load(cmds[1]); ok && l2.(*list.List) != nil {
+		con.Write(resp.IntegersParser{}.Encode(l2.(*list.List).Len()))
+	} else {
+		con.Write([]byte("$-1\r\n"))
+	}
+
 }
