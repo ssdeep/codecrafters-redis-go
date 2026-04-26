@@ -142,6 +142,11 @@ func (l LRangeExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, 
 	}
 
 	l2, _ := listStorage.Load(cmds[1])
+	arrEncoder := resp.ArraysParser{}
+	if l2 == nil {
+		con.Write(arrEncoder.Encode(*list.New()))
+		return
+	}
 	l3 := l2.(*list.List)
 	if from < 0 {
 		from = from + l3.Len()
@@ -154,8 +159,6 @@ func (l LRangeExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, 
 	}
 
 	to = to + 1
-
-	arrEncoder := resp.ArraysParser{}
 
 	if l3 == nil || l3.Len() == 0 || from >= l3.Len() || from > to {
 		con.Write(arrEncoder.Encode(*list.New()))
@@ -171,7 +174,7 @@ func scan(l *list.List, from, to int) (e *list.List) {
 	for range from {
 		iter.Next()
 	}
-	s := to - from + 1
+	s := to - from
 	elems := list.New()
 	for range s {
 		elems.PushBack(iter.Value.(resp.Value))
