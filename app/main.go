@@ -27,7 +27,7 @@ var listStorage sync.Map
 func cleanup() {
 	for {
 		storage.Range(func(k, v any) bool {
-			if val := v.(commands.Value); val.Expiry != -1 && val.Expiry < time.Now().UnixMilli() {
+			if val := v.(resp.Value); val.Expiry != -1 && val.Expiry < time.Now().UnixMilli() {
 				storage.Delete(k)
 			}
 			return true
