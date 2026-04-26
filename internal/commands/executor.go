@@ -160,6 +160,8 @@ func (l LRangeExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, 
 
 	to = to + 1
 
+	fmt.Println("final adjusted From: ", from, " to: ", to)
+
 	if l3 == nil || l3.Len() == 0 || from >= l3.Len() || from > to {
 		con.Write(arrEncoder.Encode(*list.New()))
 	} else {
