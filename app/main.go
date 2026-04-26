@@ -91,6 +91,30 @@ func handleConnection(a net.Conn, storage *sync.Map) {
 				listStorage.Store(cmds[1], list)
 				length := len(list.([]Value))
 				a.Write(resp.IntegersParser{}.Encode(length))
+			case "LRANGE":
+				fmt.Println("Getting range ", cmds[2], " to ", cmds[3], " from ", cmds[1])
+				from, err := strconv.Atoi(cmds[2])
+				if err != nil {
+					fmt.Println("Error parsing from: ", err.Error())
+					return
+				}
+				to, err := strconv.Atoi(cmds[3])
+				if err != nil {
+					fmt.Println("Error parsing to: ", err.Error())
+					return
+				}
+				list, _ := listStorage.Load(cmds[1])
+				arrEncoder := resp.ArraysParser{}
+				if list == nil || from >= len(list.([]Value)) || from > to {
+					a.Write(arrEncoder.Encode([]string{}))
+				} else {
+					var items []string
+					maxTo := min(to, len(list.([]Value)))
+					for _, item := range list.([]Value)[from:maxTo] {
+						items = append(items, item.name)
+					}
+					a.Write(arrEncoder.Encode(items))
+				}
 			case "SET":
 				fmt.Println("Setting ", cmds[1], " to ", cmds[2])
 				argSize := len(cmds)

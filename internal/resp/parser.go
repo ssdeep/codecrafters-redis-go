@@ -175,6 +175,15 @@ func (r ArraysParser) Parse(line []byte) (string, error) {
 	return parseAggregate(line, 1)
 }
 
+func (r ArraysParser) Encode(arr []string) []byte {
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "*%d%s", len(arr), CRLF)
+	for _, s := range arr {
+		buf.Write(EncodeBulkString(s))
+	}
+	return buf.Bytes()
+}
+
 // MapsParser handles %<count>\r\n followed by count*2 RESP values (key/value pairs).
 func (r MapsParser) Parse(line []byte) (string, error) {
 	return parseAggregate(line, 2)
