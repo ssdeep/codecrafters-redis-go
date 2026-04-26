@@ -14,11 +14,11 @@ import (
 
 // var storage sync.Map
 // var listStorage sync.Map
-type Value struct {
-	Name   string
-	Expiry int64
-}
-
+//
+//	type Value struct {
+//		Name   string
+//		Expiry int64
+//	}
 type Executor interface {
 	Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map)
 }
@@ -79,7 +79,7 @@ func (s SetExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, lis
 	} else {
 		expiryMs = -1
 	}
-	storage.Store(cmds[1], Value{cmds[2], expiryMs})
+	storage.Store(cmds[1], resp.Value{cmds[2], expiryMs})
 	fmt.Println("Storage: ", storage)
 	con.Write([]byte("+OK\r\n"))
 }
@@ -90,7 +90,7 @@ func (g GetExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, lis
 	if v, ok := storage.Load(cmds[1]); !ok {
 		con.Write([]byte("$-1\r\n"))
 	} else {
-		con.Write(resp.EncodeBulkString(v.(Value).Name))
+		con.Write(resp.EncodeBulkString(v.(resp.Value).Name))
 	}
 }
 
@@ -114,13 +114,13 @@ func pushItems(from string, cmds []string, listStorage *sync.Map) []byte {
 	l2 := l.(*list.List)
 	for _, item := range cmds[2:] {
 
-		switch (from) {
-		  case "R":
-			  _ = l2.PushBack(Value{item, -1})
-		  case "L":
-			  _ = l2.PushFront(Value{item, -1})
-	      default:
-			  _ = l2.PushBack(Value{item, -1})
+		switch from {
+		case "R":
+			_ = l2.PushBack(resp.Value{item, -1})
+		case "L":
+			_ = l2.PushFront(resp.Value{item, -1})
+		default:
+			_ = l2.PushBack(resp.Value{item, -1})
 
 		}
 	}
@@ -156,15 +156,27 @@ func (l LRangeExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, 
 	to = to + 1
 
 	arrEncoder := resp.ArraysParser{}
-	l2 :=
-	if list == nil || from >= len(list.([]Value)) || from > to {
-		con.Write(arrEncoder.Encode([]string{}))
+
+	if l3 == nil || l3.Len() == 0 || from >= l3.Len() || from > to {
+		con.Write(arrEncoder.Encode(*list.New()))
 	} else {
-		var items []string
-		maxTo := min(to, len(list.([]Value)))
-		for _, item := range list.([]Value)[from:maxTo] {
-			items = append(items, item.Name)
-		}
-		con.Write(arrEncoder.Encode(items))
+		maxTo := min(to, l3.Len())
+		subList := scan(l3, from, maxTo)
+		con.Write(arrEncoder.Encode(*subList))
 	}
+}
+
+func scan(l *list.List, from, to int) (e *list.List) {
+	iter := l.Front()
+	for range from {
+		iter.Next()
+	}
+	s := to - from + 1
+	elems := list.New()
+	for range s {
+		elems.PushBack(iter.Value.(resp.Value))
+		//elems = append(elems, iter.Value.(resp.Value))
+		iter = iter.Next()
+	}
+	return elems
 }
