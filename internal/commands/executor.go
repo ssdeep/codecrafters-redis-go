@@ -195,5 +195,8 @@ func scan(l *list.List, from, to int) (e *list.List) {
 
 func (l LLenExecytor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
 	l2, _ := listStorage.Load(cmds[1])
+	if l2 == nil {
+		l2 = list.New()
+	}
 	con.Write(resp.IntegersParser{}.Encode(l2.(*list.List).Len()))
 }
