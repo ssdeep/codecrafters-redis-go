@@ -147,7 +147,9 @@ func (l LRangeExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, 
 		con.Write(arrEncoder.Encode(*list.New()))
 		return
 	}
+
 	l3 := l2.(*list.List)
+	fmt.Printf("Current state %s\n", l3)
 	if from < 0 {
 		from = from + l3.Len()
 		from = max(0, from)
@@ -174,10 +176,12 @@ func (l LRangeExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, 
 func scan(l *list.List, from, to int) (e *list.List) {
 	iter := l.Front()
 	for range from {
-		iter.Next()
+		//fmt.Println("Skipping ", iter.Value.(resp.Value).Name)
+		iter = iter.Next()
 	}
 	s := to - from
 	elems := list.New()
+	//fmt.Println("Scanning at ", iter.Value.(resp.Value).Name, " elements")
 	for range s {
 		elems.PushBack(iter.Value.(resp.Value))
 		//elems = append(elems, iter.Value.(resp.Value))
