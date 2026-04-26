@@ -14,6 +14,10 @@ const CR = '\r'
 const LF = '\n'
 const SP = ' '
 
+type Value struct {
+	Name   string
+	Expiry int64
+}
 type RespDataType int
 
 type RespDataTypeParser interface {
@@ -176,22 +180,27 @@ func (r ArraysParser) Parse(line []byte) (string, error) {
 	return parseAggregate(line, 1)
 }
 
-func (r ArraysParser) Encode(arr []string) []byte {
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "*%d%s", len(arr), CRLF)
-	for _, s := range arr {
-		buf.Write(EncodeBulkString(s))
-	}
-	return buf.Bytes()
-}
+//func (r ArraysParser) Encode(arr []string) []byte {
+//	var buf bytes.Buffer
+//	fmt.Fprintf(&buf, "*%d%s", len(arr), CRLF)
+//	for _, s := range arr {
+//		buf.Write(EncodeBulkString(s))
+//	}
+//	return buf.Bytes()
+//}
 
 func (r ArraysParser) Encode(l list.List) []byte {
 	var buf bytes.Buffer
 	leng := l.Len()
 	fmt.Fprintf(&buf, "*%d%s", leng, CRLF)
-    items := l.Front()
-	for _ := range leng {
-		buf.Write(EncodeBulkString(items(.Value).name))
+	items := l.Front()
+	for range leng {
+		if val, ok := items.Value.(Value); ok {
+			buf.Write(EncodeBulkString(val.Name))
+		}
+		//ok {
+		//	buf.Write(EncodeBulkString(val))
+		//}
 		items = items.Next()
 	}
 	return buf.Bytes()
