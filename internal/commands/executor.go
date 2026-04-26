@@ -28,6 +28,7 @@ var executors = map[string]Executor{
 	"GET":    GetExecutor{},
 	"ECHO":   EchoExecutor{},
 	"RPUSH":  RPushExecutor{},
+	"LPUSH":  LPushExecutor{},
 	"LRANGE": LRangeExecutor{},
 }
 
@@ -42,6 +43,8 @@ type GetExecutor struct{}
 type EchoExecutor struct{}
 
 type RPushExecutor struct{}
+
+type LPushExecutor struct{}
 type LRangeExecutor struct{}
 
 func (p PingExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
@@ -95,16 +98,34 @@ func (e EchoExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, li
 }
 
 func (r RPushExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
+	response := pushItems("R", cmds, listStorage)
+	con.Write(response)
+}
+
+func (r LPushExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
+	response := pushItems("L", cmds, listStorage)
+	con.Write(response)
+}
+
+func pushItems(from string, cmds []string, listStorage *sync.Map) []byte {
 	fmt.Println("Pushing ", cmds[2], " to ", cmds[1])
 	list, _ := listStorage.LoadOrStore(cmds[1], []Value{})
 	var items []Value
 	for _, item := range cmds[2:] {
 		items = append(items, Value{item, -1})
 	}
-	list = append(list.([]Value), items...)
+	switch from {
+	case "R":
+		list = append(list.([]Value), items...)
+	case "L":
+		list = append(items, list.([]Value)...)
+	default:
+		list = append(list.([]Value), items...)
+	}
+	//list = append(list.([]Value), items...)
 	listStorage.Store(cmds[1], list)
 	length := len(list.([]Value))
-	con.Write(resp.IntegersParser{}.Encode(length))
+	return resp.IntegersParser{}.Encode(length)
 }
 
 func (l LRangeExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
