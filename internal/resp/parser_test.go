@@ -1,10 +1,15 @@
 package resp
 
 import (
+	"fmt"
 	"net"
 	"testing"
 )
 
+func TestItems(t *testing.T) {
+	items := []string{"foo", "bar", "baz"}
+	fmt.Printf("%s", items[0:2])
+}
 func TestParse(t *testing.T) {
 	client, server := net.Pipe()
 	defer client.Close()

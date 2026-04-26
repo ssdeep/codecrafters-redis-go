@@ -103,6 +103,7 @@ func handleConnection(a net.Conn, storage *sync.Map) {
 					fmt.Println("Error parsing to: ", err.Error())
 					return
 				}
+				to = to + 1
 				list, _ := listStorage.Load(cmds[1])
 				arrEncoder := resp.ArraysParser{}
 				if list == nil || from >= len(list.([]Value)) || from > to {
