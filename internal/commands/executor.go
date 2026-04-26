@@ -31,6 +31,7 @@ var executors = map[string]Executor{
 	"RPUSH":  RPushExecutor{},
 	"LPUSH":  LPushExecutor{},
 	"LRANGE": LRangeExecutor{},
+	"LLEN":   LLenExecytor{},
 }
 
 func Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
@@ -47,6 +48,8 @@ type RPushExecutor struct{}
 
 type LPushExecutor struct{}
 type LRangeExecutor struct{}
+
+type LLenExecytor struct{}
 
 func (p PingExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
 	con.Write([]byte("+PONG\r\n"))
@@ -188,4 +191,9 @@ func scan(l *list.List, from, to int) (e *list.List) {
 		iter = iter.Next()
 	}
 	return elems
+}
+
+func (l LLenExecytor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
+	l2, _ := listStorage.Load(cmds[1])
+	con.Write(resp.IntegersParser{}.Encode(l2.(*list.List).Len()))
 }
