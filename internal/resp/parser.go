@@ -193,15 +193,17 @@ func (r ArraysParser) Encode(l list.List) []byte {
 	var buf bytes.Buffer
 	leng := l.Len()
 	fmt.Fprintf(&buf, "*%d%s", leng, CRLF)
-	items := l.Front()
-	for range leng {
-		if val, ok := items.Value.(Value); ok {
-			buf.Write(EncodeBulkString(val.Name))
+	if l.Len() > 0 {
+		items := l.Front()
+		for range leng {
+			if val, ok := items.Value.(Value); ok {
+				buf.Write(EncodeBulkString(val.Name))
+			}
+			//ok {
+			//	buf.Write(EncodeBulkString(val))
+			//}
+			items = items.Next()
 		}
-		//ok {
-		//	buf.Write(EncodeBulkString(val))
-		//}
-		items = items.Next()
 	}
 	return buf.Bytes()
 }
