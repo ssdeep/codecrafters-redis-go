@@ -205,8 +205,11 @@ func (l LLenExecytor) Execute(cmds []string, con net.Conn, storage *sync.Map, li
 }
 
 func (l LPopExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
-	if l2, ok := listStorage.Load(cmds[1]); ok && l2.(*list.List) != nil {
-		con.Write(resp.IntegersParser{}.Encode(l2.(*list.List).Len()))
+	if l2, ok := listStorage.Load(cmds[1]); ok && l2.(*list.List) != nil && l2.(*list.List).Len() > 0 {
+		l3 := l2.(*list.List)
+		popped := l3.Front().Value.(resp.Value).Name
+		l3.Remove(l3.Front())
+		con.Write(resp.EncodeBulkString(popped))
 	} else {
 		con.Write([]byte("$-1\r\n"))
 	}
