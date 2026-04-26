@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"container/list"
 	"fmt"
 	"net"
 	"strconv"
@@ -109,23 +110,21 @@ func (r LPushExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, l
 
 func pushItems(from string, cmds []string, listStorage *sync.Map) []byte {
 	fmt.Println("Pushing ", cmds[2], " to ", cmds[1])
-	list, _ := listStorage.LoadOrStore(cmds[1], []Value{})
-	var items []Value
+	l, _ := listStorage.LoadOrStore(cmds[1], list.New())
+	l2 := l.(*list.List)
 	for _, item := range cmds[2:] {
-		items = append(items, Value{item, -1})
+
+		switch (from) {
+		  case "R":
+			  _ = l2.PushBack(Value{item, -1})
+		  case "L":
+			  _ = l2.PushFront(Value{item, -1})
+	      default:
+			  _ = l2.PushBack(Value{item, -1})
+
+		}
 	}
-	switch from {
-	case "R":
-		list = append(list.([]Value), items...)
-	case "L":
-		list = append(items, list.([]Value)...)
-	default:
-		list = append(list.([]Value), items...)
-	}
-	//list = append(list.([]Value), items...)
-	listStorage.Store(cmds[1], list)
-	length := len(list.([]Value))
-	return resp.IntegersParser{}.Encode(length)
+	return resp.IntegersParser{}.Encode(l2.Len())
 }
 
 func (l LRangeExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
@@ -142,20 +141,22 @@ func (l LRangeExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, 
 		return
 	}
 
-	list, _ := listStorage.Load(cmds[1])
+	l2, _ := listStorage.Load(cmds[1])
+	l3 := l2.(*list.List)
 	if from < 0 {
-		from = from + len(list.([]Value))
+		from = from + l3.Len()
 		from = max(0, from)
 	}
 
 	if to < 0 {
-		to = to + len(list.([]Value))
+		to = to + l3.Len()
 		to = max(0, to)
 	}
 
 	to = to + 1
 
 	arrEncoder := resp.ArraysParser{}
+	l2 :=
 	if list == nil || from >= len(list.([]Value)) || from > to {
 		con.Write(arrEncoder.Encode([]string{}))
 	} else {

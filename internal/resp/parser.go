@@ -2,6 +2,7 @@ package resp
 
 import (
 	"bytes"
+	"container/list"
 	"fmt"
 	"net"
 	"strconv"
@@ -180,6 +181,18 @@ func (r ArraysParser) Encode(arr []string) []byte {
 	fmt.Fprintf(&buf, "*%d%s", len(arr), CRLF)
 	for _, s := range arr {
 		buf.Write(EncodeBulkString(s))
+	}
+	return buf.Bytes()
+}
+
+func (r ArraysParser) Encode(l list.List) []byte {
+	var buf bytes.Buffer
+	leng := l.Len()
+	fmt.Fprintf(&buf, "*%d%s", leng, CRLF)
+    items := l.Front()
+	for _ := range leng {
+		buf.Write(EncodeBulkString(items(.Value).name))
+		items = items.Next()
 	}
 	return buf.Bytes()
 }
