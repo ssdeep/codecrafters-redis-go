@@ -206,10 +206,68 @@ func (l LLenExecytor) Execute(cmds []string, con net.Conn, storage *sync.Map, li
 
 func (l LPopExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
 	if l2, ok := listStorage.Load(cmds[1]); ok && l2.(*list.List) != nil && l2.(*list.List).Len() > 0 {
-		l3 := l2.(*list.List)
-		popped := l3.Front().Value.(resp.Value).Name
-		l3.Remove(l3.Front())
-		con.Write(resp.EncodeBulkString(popped))
+		if len(cmds) == 2 {
+			l3 := l2.(*list.List)
+			popped := l3.Front().Value.(resp.Value).Name
+			l3.Remove(l3.Front())
+			con.Write(resp.EncodeBulkString(popped))
+		} else if len(cmds) == 3 {
+			l3 := l2.(*list.List)
+			count, err := strconv.Atoi(cmds[2])
+			if err != nil {
+				fmt.Println("Error parsing count: ", err.Error())
+				return
+			}
+			arrEncoder := resp.ArraysParser{}
+			poppedElements := list.New()
+			for range count {
+				popped := l3.Front().Value.(resp.Value)
+				poppedElements.PushBack(popped)
+				l3.Remove(l3.Front())
+			}
+
+			con.Write(arrEncoder.Encode(*poppedElements))
+		} else if len(cmds) == 4 {
+			from, err := strconv.Atoi(cmds[2])
+			if err != nil {
+				fmt.Println("Error parsing from: ", err.Error())
+				return
+			}
+			if from < 0 {
+				from = from + l2.(*list.List).Len()
+				from = max(0, from)
+			}
+			to, err := strconv.Atoi(cmds[3])
+			if err != nil {
+				fmt.Println("Error parsing to: ", err.Error())
+				return
+			}
+			if to < 0 {
+				to = to + l2.(*list.List).Len()
+			}
+
+			to = to + 1
+			count := to - from
+			l3 := l2.(*list.List)
+			var poppedElements *list.List
+			iter := l3.Front()
+			for range from {
+				iter = iter.Next()
+			}
+			for range count {
+				poppedElements.PushBack(iter.Value.(resp.Value))
+				temp := iter
+				l3.Remove(temp)
+				iter = iter.Next()
+			}
+			arrEncoder := resp.ArraysParser{}
+			if poppedElements == nil || poppedElements.Len() == 0 {
+				con.Write(arrEncoder.Encode(*list.New()))
+			} else {
+				con.Write(arrEncoder.Encode(*poppedElements))
+			}
+		}
+
 	} else {
 		con.Write([]byte("$-1\r\n"))
 	}
