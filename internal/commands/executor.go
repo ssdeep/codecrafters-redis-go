@@ -297,7 +297,7 @@ func (l BLPopExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, l
 				con.Write(arrEncoder.Encode(*response))
 			}
 		} else {
-			tout := time.After(time.Duration(timeout) * time.Second)
+			tout := time.After(time.Duration(timeout) * 1000 * time.Millisecond)
 			popped := make(chan resp.Value, 1)
 			go func() {
 				poppedValue, ok := popBlocking(cmds[1], listStorage)
