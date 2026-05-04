@@ -7,6 +7,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 const CRLF = "\r\n"
@@ -17,6 +18,11 @@ const SP = ' '
 type Value struct {
 	Name   string
 	Expiry int64
+}
+
+type Entry struct {
+	ID     string
+	Values *sync.Map
 }
 type RespDataType int
 
@@ -183,15 +189,6 @@ func (r VerbatimStringsParser) Parse(line []byte) (string, error) {
 func (r ArraysParser) Parse(line []byte) (string, error) {
 	return parseAggregate(line, 1)
 }
-
-//func (r ArraysParser) Encode(arr []string) []byte {
-//	var buf bytes.Buffer
-//	fmt.Fprintf(&buf, "*%d%s", len(arr), CRLF)
-//	for _, s := range arr {
-//		buf.Write(EncodeBulkString(s))
-//	}
-//	return buf.Bytes()
-//}
 
 func EncodeNullArray() []byte {
 	return []byte("*-1\r\n")

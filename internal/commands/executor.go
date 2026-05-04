@@ -12,15 +12,14 @@ import (
 	"github.com/codecrafters-io/redis-starter-go/internal/resp"
 )
 
-// var storage sync.Map
-// var listStorage sync.Map
-//
-//	type Value struct {
-//		Name   string
-//		Expiry int64
-//	}
+type Storage struct {
+	Singles sync.Map
+	Lists   sync.Map
+	Streams sync.Map
+}
+
 type Executor interface {
-	Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map)
+	Execute(cmds []string, con net.Conn, storage *Storage)
 }
 
 var executors = map[string]Executor{
@@ -35,10 +34,11 @@ var executors = map[string]Executor{
 	"LPOP":   LPopExecutor{},
 	"BLPOP":  BLPopExecutor{},
 	"TYPE":   TypeExecutor{},
+	"XADD":   XAddExecutor{},
 }
 
-func Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
-	executors[cmds[0]].Execute(cmds, con, storage, listStorage)
+func Execute(cmds []string, con net.Conn, storage *Storage) {
+	executors[cmds[0]].Execute(cmds, con, storage)
 }
 
 type PingExecutor struct{}
@@ -60,11 +60,13 @@ type BLPopExecutor struct{}
 
 type TypeExecutor struct{}
 
-func (p PingExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
+type XAddExecutor struct{}
+
+func (p PingExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	con.Write([]byte("+PONG\r\n"))
 }
 
-func (s SetExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
+func (s SetExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	fmt.Println("Setting ", cmds[1], " to ", cmds[2])
 	argSize := len(cmds)
 	var expiryMs int64
@@ -91,32 +93,32 @@ func (s SetExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, lis
 	} else {
 		expiryMs = -1
 	}
-	storage.Store(cmds[1], resp.Value{cmds[2], expiryMs})
+	storage.Singles.Store(cmds[1], resp.Value{cmds[2], expiryMs})
 	fmt.Println("Storage: ", storage)
 	con.Write([]byte("+OK\r\n"))
 }
 
-func (g GetExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
+func (g GetExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	fmt.Println("Getting ", cmds[1])
 	fmt.Println("Storage: ", storage)
-	if v, ok := storage.Load(cmds[1]); !ok {
+	if v, ok := storage.Singles.Load(cmds[1]); !ok {
 		con.Write([]byte("$-1\r\n"))
 	} else {
 		con.Write(resp.EncodeBulkString(v.(resp.Value).Name))
 	}
 }
 
-func (e EchoExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
+func (e EchoExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	con.Write(resp.EncodeBulkString(cmds[1]))
 }
 
-func (r RPushExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
-	response := pushItems("R", cmds, listStorage)
+func (r RPushExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+	response := pushItems("R", cmds, &storage.Lists)
 	con.Write(response)
 }
 
-func (r LPushExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
-	response := pushItems("L", cmds, listStorage)
+func (r LPushExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+	response := pushItems("L", cmds, &storage.Lists)
 	con.Write(response)
 }
 
@@ -139,7 +141,7 @@ func pushItems(from string, cmds []string, listStorage *sync.Map) []byte {
 	return resp.IntegersParser{}.Encode(l2.Len())
 }
 
-func (l LRangeExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
+func (l LRangeExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	fmt.Println("Getting range ", cmds[2], " to ", cmds[3], " from ", cmds[1])
 	from, err := strconv.Atoi(cmds[2])
 	if err != nil {
@@ -153,7 +155,7 @@ func (l LRangeExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, 
 		return
 	}
 
-	l2, _ := listStorage.Load(cmds[1])
+	l2, _ := storage.Lists.Load(cmds[1])
 	arrEncoder := resp.ArraysParser{}
 	if l2 == nil {
 		con.Write(arrEncoder.Encode(*list.New()))
@@ -202,16 +204,16 @@ func scan(l *list.List, from, to int) (e *list.List) {
 	return elems
 }
 
-func (l LLenExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
-	l2, _ := listStorage.Load(cmds[1])
+func (l LLenExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+	l2, _ := storage.Lists.Load(cmds[1])
 	if l2 == nil {
 		l2 = list.New()
 	}
 	con.Write(resp.IntegersParser{}.Encode(l2.(*list.List).Len()))
 }
 
-func (l LPopExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
-	if l2, ok := listStorage.Load(cmds[1]); ok && l2.(*list.List) != nil && l2.(*list.List).Len() > 0 {
+func (l LPopExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+	if l2, ok := storage.Lists.Load(cmds[1]); ok && l2.(*list.List) != nil && l2.(*list.List).Len() > 0 {
 		if len(cmds) == 2 {
 			l3 := l2.(*list.List)
 			popped := l3.Front().Value.(resp.Value).Name
@@ -255,7 +257,7 @@ func (l LPopExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, li
 			to = to + 1
 			count := to - from
 			l3 := l2.(*list.List)
-			var poppedElements *list.List
+			poppedElements := list.New()
 			iter := l3.Front()
 			for range from {
 				iter = iter.Next()
@@ -267,11 +269,7 @@ func (l LPopExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, li
 				iter = iter.Next()
 			}
 			arrEncoder := resp.ArraysParser{}
-			if poppedElements == nil || poppedElements.Len() == 0 {
-				con.Write(arrEncoder.Encode(*list.New()))
-			} else {
-				con.Write(arrEncoder.Encode(*poppedElements))
-			}
+			con.Write(arrEncoder.Encode(*poppedElements))
 		}
 
 	} else {
@@ -280,7 +278,7 @@ func (l LPopExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, li
 
 }
 
-func (l BLPopExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
+func (l BLPopExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	if len(cmds) == 3 {
 		timeout, err := strconv.ParseFloat(strings.Trim(cmds[2], "\r\n"), 64)
 		if err != nil {
@@ -294,7 +292,7 @@ func (l BLPopExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, l
 
 		arrEncoder := resp.ArraysParser{}
 		if timeout == 0 {
-			popped, ok := popBlocking(cmds[1], listStorage)
+			popped, ok := popBlocking(cmds[1], &storage.Lists)
 			fmt.Println("Blocking popped: ", popped)
 			response.PushBack(popped)
 			if ok {
@@ -305,7 +303,7 @@ func (l BLPopExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, l
 			tout := time.After(time.Millisecond * time.Duration(timeout))
 			popped := make(chan resp.Value, 1)
 			go func() {
-				poppedValue, ok := popBlocking(cmds[1], listStorage)
+				poppedValue, ok := popBlocking(cmds[1], &storage.Lists)
 				popped <- poppedValue
 				if ok {
 					close(popped)
@@ -329,13 +327,29 @@ func (l BLPopExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, l
 	}
 }
 
-func (t TypeExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
+func (t TypeExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	fmt.Println("Getting type of ", cmds[1])
-	if _, ok := storage.Load(cmds[1]); ok {
+	if _, ok := storage.Singles.Load(cmds[1]); ok {
 		con.Write(resp.EncodeSimpleString("string"))
+	} else if _, ok := storage.Lists.Load(cmds[1]); ok {
+		con.Write(resp.EncodeSimpleString("list"))
+	} else if _, ok := storage.Streams.Load(cmds[1]); ok {
+		con.Write(resp.EncodeSimpleString("stream"))
 	} else {
 		con.Write(resp.EncodeSimpleString("none"))
 	}
+}
+
+func (x XAddExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+	fmt.Println("XAdd to streams ", cmds[1])
+	stream, _ := storage.Streams.LoadOrStore(cmds[1], list.New())
+	entries := sync.Map{}
+	for i := 3; i < len(cmds)-1; i++ {
+		entries.Store(cmds[i], resp.Value{cmds[i+1], -1})
+		i = i + 1
+	}
+	stream.(*list.List).PushBack(resp.Entry{cmds[2], &entries})
+	con.Write(resp.EncodeBulkString(cmds[2]))
 }
 
 func popBlocking(key string, listStorage *sync.Map) (resp.Value, bool) {

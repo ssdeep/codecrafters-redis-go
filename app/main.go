@@ -21,14 +21,17 @@ var _ = os.Exit
 //	expiry int64
 //}
 
-var storage sync.Map
-var listStorage sync.Map
+var storage = commands.Storage{
+	Singles: sync.Map{},
+	Lists:   sync.Map{},
+	Streams: sync.Map{},
+}
 
 func cleanup() {
 	for {
-		storage.Range(func(k, v any) bool {
+		storage.Singles.Range(func(k, v any) bool {
 			if val := v.(resp.Value); val.Expiry != -1 && val.Expiry < time.Now().UnixMilli() {
-				storage.Delete(k)
+				storage.Singles.Delete(k)
 			}
 			return true
 		})
@@ -75,92 +78,7 @@ func handleConnection(a net.Conn) {
 		}
 
 		cmds := strings.Split(word, " ")
-		commands.Execute(cmds, a, &storage, &listStorage)
-		//if word == "PING" {
-		//	a.Write([]byte("+PONG\r\n"))
-		//} else {
-		//	fmt.Println("Command: ", cmds)
-		//	switch cmds[0] {
-		//	case "RPUSH":
-		//		fmt.Println("Pushing ", cmds[2], " to ", cmds[1])
-		//		list, _ := listStorage.LoadOrStore(cmds[1], []Value{})
-		//		var items []Value
-		//		for _, item := range cmds[2:] {
-		//			items = append(items, Value{item, -1})
-		//		}
-		//		list = append(list.([]Value), items...)
-		//		listStorage.Store(cmds[1], list)
-		//		length := len(list.([]Value))
-		//		a.Write(resp.IntegersParser{}.Encode(length))
-		//	case "LRANGE":
-		//		fmt.Println("Getting range ", cmds[2], " to ", cmds[3], " from ", cmds[1])
-		//		from, err := strconv.Atoi(cmds[2])
-		//		if err != nil {
-		//			fmt.Println("Error parsing from: ", err.Error())
-		//			return
-		//		}
-		//		to, err := strconv.Atoi(cmds[3])
-		//		if err != nil {
-		//			fmt.Println("Error parsing to: ", err.Error())
-		//			return
-		//		}
-		//		to = to + 1
-		//		list, _ := listStorage.Load(cmds[1])
-		//		arrEncoder := resp.ArraysParser{}
-		//		if list == nil || from >= len(list.([]Value)) || from > to {
-		//			a.Write(arrEncoder.Encode([]string{}))
-		//		} else {
-		//			var items []string
-		//			maxTo := min(to, len(list.([]Value)))
-		//			for _, item := range list.([]Value)[from:maxTo] {
-		//				items = append(items, item.name)
-		//			}
-		//			a.Write(arrEncoder.Encode(items))
-		//		}
-		//	case "SET":
-		//		fmt.Println("Setting ", cmds[1], " to ", cmds[2])
-		//		argSize := len(cmds)
-		//		var exp int64
-		//		var expiryMs int64
-		//		if argSize > 3 {
-		//			fmt.Println("Setting expiry for ", cmds[1], "at", cmds[4])
-		//			exp, err = strconv.ParseInt(strings.Trim(cmds[4], "\r"), 10, 64)
-		//			if err != nil {
-		//				fmt.Println("Error parsing expiry: ", err.Error())
-		//				return
-		//			}
-		//
-		//			switch cmds[3] {
-		//			case "PX":
-		//				expiryMs = exp
-		//			case "EX":
-		//				expiryMs = exp * 1000
-		//			default:
-		//				expiryMs = exp
-		//			}
-		//
-		//			fmt.Println("Expiring ", cmds[1], " in ", expiryMs, "ms")
-		//			expiryMs = expiryMs + time.Now().UnixMilli()
-		//
-		//		} else {
-		//			expiryMs = -1
-		//		}
-		//		storage.Store(cmds[1], Value{cmds[2], expiryMs})
-		//		fmt.Println("Storage: ", storage)
-		//		a.Write([]byte("+OK\r\n"))
-		//	case "GET":
-		//		fmt.Println("Getting ", cmds[1])
-		//		fmt.Println("Storage: ", storage)
-		//		if v, ok := storage.Load(cmds[1]); !ok {
-		//			a.Write([]byte("$-1\r\n"))
-		//		} else {
-		//			a.Write(resp.EncodeBulkString(v.(Value).name))
-		//		}
-		//	case "ECHO":
-		//		a.Write(resp.EncodeBulkString(cmds[1]))
-		//	}
-		//}
-
+		commands.Execute(cmds, a, &storage)
 		fmt.Printf("Received: %s\n", word)
 
 	}
