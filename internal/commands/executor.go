@@ -278,7 +278,7 @@ func (l LPopExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, li
 }
 
 func (l BLPopExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
-	if len(cmds) == 4 {
+	if len(cmds) == 3 {
 		timeout, err := strconv.Atoi(cmds[2])
 		if err != nil {
 			fmt.Println("Error parsing timeout: %w", err)
