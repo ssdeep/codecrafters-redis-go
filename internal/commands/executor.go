@@ -31,8 +31,9 @@ var executors = map[string]Executor{
 	"RPUSH":  RPushExecutor{},
 	"LPUSH":  LPushExecutor{},
 	"LRANGE": LRangeExecutor{},
-	"LLEN":   LLenExecytor{},
+	"LLEN":   LLenExecutor{},
 	"LPOP":   LPopExecutor{},
+	"BLPOP":  BLPopExecutor{},
 }
 
 func Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
@@ -52,7 +53,9 @@ type LRangeExecutor struct{}
 
 type LPopExecutor struct{}
 
-type LLenExecytor struct{}
+type LLenExecutor struct{}
+
+type BLPopExecutor struct{}
 
 func (p PingExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
 	con.Write([]byte("+PONG\r\n"))
@@ -196,7 +199,7 @@ func scan(l *list.List, from, to int) (e *list.List) {
 	return elems
 }
 
-func (l LLenExecytor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
+func (l LLenExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
 	l2, _ := listStorage.Load(cmds[1])
 	if l2 == nil {
 		l2 = list.New()
@@ -272,4 +275,62 @@ func (l LPopExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, li
 		con.Write([]byte("$-1\r\n"))
 	}
 
+}
+
+func (l BLPopExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
+	if len(cmds) == 3 {
+		timeout, err := strconv.Atoi(cmds[2])
+		if err != nil {
+			fmt.Println("Error parsing timeout: %w", err)
+			return
+		}
+
+		response := list.New()
+		response.PushBack(resp.Value{cmds[1], -1})
+
+		arrEncoder := resp.ArraysParser{}
+		if timeout == 0 {
+			popped, ok := popBlocking(cmds[1], listStorage)
+			fmt.Println("Blocking popped: ", popped)
+			response.PushBack(popped)
+			if ok {
+				con.Write(arrEncoder.Encode(*response))
+			}
+		} else {
+			tout := time.After(time.Duration(timeout) * time.Second)
+			popped := make(chan resp.Value, 1)
+			go func() {
+				poppedValue, ok := popBlocking(cmds[1], listStorage)
+				popped <- poppedValue
+				if ok {
+					close(popped)
+				}
+			}()
+
+			select {
+			case <-tout:
+				fmt.Println("Blocking pop timed out")
+				con.Write(resp.EncodeNullArray())
+			case poppedValue := <-popped:
+				response.PushBack(poppedValue)
+				con.Write(arrEncoder.Encode(*response))
+
+			}
+		}
+	} else {
+		fmt.Println("BLPOP expects 2 arguments")
+	}
+}
+
+func popBlocking(key string, listStorage *sync.Map) (resp.Value, bool) {
+	for true {
+		if l2, ok := listStorage.Load(key); ok && l2.(*list.List) != nil && l2.(*list.List).Len() > 0 {
+			l2 := l2.(*list.List)
+			item := l2.Front().Value.(resp.Value).Name
+			l2.Remove(l2.Front())
+			return resp.Value{item, -1}, true
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	panic("Should never reach here")
 }

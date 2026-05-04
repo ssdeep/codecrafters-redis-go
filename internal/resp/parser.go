@@ -57,7 +57,7 @@ const (
 	BulkErrors
 	VerbatimStrings
 	Maps
-	Atrributes
+	Attributes
 	Sets
 	Pushes
 	RawString
@@ -188,6 +188,10 @@ func (r ArraysParser) Parse(line []byte) (string, error) {
 //	}
 //	return buf.Bytes()
 //}
+
+func EncodeNullArray() []byte {
+	return []byte("*-1\r\n")
+}
 
 func (r ArraysParser) Encode(l list.List) []byte {
 	var buf bytes.Buffer
