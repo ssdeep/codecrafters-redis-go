@@ -279,11 +279,12 @@ func (l LPopExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, li
 
 func (l BLPopExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
 	if len(cmds) == 3 {
-		timeout, err := strconv.ParseFloat(cmds[2], 64)
+		timeout, err := strconv.ParseFloat(strings.Trim(cmds[2], "\r\n"), 64)
 		if err != nil {
 			fmt.Println("Error parsing timeout: %w", err)
 			return
 		}
+		timeout = timeout * 1000
 
 		response := list.New()
 		response.PushBack(resp.Value{cmds[1], -1})
@@ -297,7 +298,8 @@ func (l BLPopExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, l
 				con.Write(arrEncoder.Encode(*response))
 			}
 		} else {
-			tout := time.After(time.Duration(timeout) * 1000 * time.Millisecond)
+			timenow := time.Now()
+			tout := time.After(time.Millisecond * time.Duration(timeout))
 			popped := make(chan resp.Value, 1)
 			go func() {
 				poppedValue, ok := popBlocking(cmds[1], listStorage)
@@ -309,7 +311,8 @@ func (l BLPopExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, l
 
 			select {
 			case <-tout:
-				fmt.Println("Blocking pop timed out")
+				elapsed := time.Since(timenow).Milliseconds()
+				fmt.Printf("Blocking pop timed out after %f milliseconds elapsed %d\n", timeout, elapsed)
 				con.Write(resp.EncodeNullArray())
 			case poppedValue := <-popped:
 				response.PushBack(poppedValue)
