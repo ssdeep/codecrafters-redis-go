@@ -113,6 +113,10 @@ func EncodeBulkString(s string) []byte {
 	return fmt.Appendf(nil, "$%d%s%s%s", len(data), CRLF, data, CRLF)
 }
 
+func EncodeSimpleString(s string) []byte {
+	return []byte("+" + s + CRLF)
+}
+
 func (r IntegersParser) Encode(s int) []byte {
 	return fmt.Appendf(nil, ":%d%s", s, CRLF)
 }

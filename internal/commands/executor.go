@@ -34,6 +34,7 @@ var executors = map[string]Executor{
 	"LLEN":   LLenExecutor{},
 	"LPOP":   LPopExecutor{},
 	"BLPOP":  BLPopExecutor{},
+	"TYPE":   TypeExecutor{},
 }
 
 func Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
@@ -56,6 +57,8 @@ type LPopExecutor struct{}
 type LLenExecutor struct{}
 
 type BLPopExecutor struct{}
+
+type TypeExecutor struct{}
 
 func (p PingExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
 	con.Write([]byte("+PONG\r\n"))
@@ -310,18 +313,28 @@ func (l BLPopExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, l
 			}()
 
 			select {
-			case <-tout:
+			case timeafter := <-tout:
 				elapsed := time.Since(timenow).Milliseconds()
-				fmt.Printf("Blocking pop timed out after %f milliseconds elapsed %d\n", timeout, elapsed)
+				fmt.Printf("Blocking pop timed out after %f milliseconds elapsed %d, started at %s ended at %s \n", timeout,
+					elapsed,
+					timenow, timeafter)
 				con.Write(resp.EncodeNullArray())
 			case poppedValue := <-popped:
 				response.PushBack(poppedValue)
 				con.Write(arrEncoder.Encode(*response))
-
 			}
 		}
 	} else {
 		fmt.Printf("BLPOP expects 2 arguments found %d\n", len(cmds))
+	}
+}
+
+func (t TypeExecutor) Execute(cmds []string, con net.Conn, storage *sync.Map, listStorage *sync.Map) {
+	fmt.Println("Getting type of ", cmds[1])
+	if _, ok := storage.Load(cmds[1]); ok {
+		con.Write(resp.EncodeSimpleString("string"))
+	} else {
+		con.Write(resp.EncodeSimpleString("none"))
 	}
 }
 
@@ -333,7 +346,7 @@ func popBlocking(key string, listStorage *sync.Map) (resp.Value, bool) {
 			l2.Remove(l2.Front())
 			return resp.Value{item, -1}, true
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	panic("Should never reach here")
