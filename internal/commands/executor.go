@@ -2,6 +2,7 @@ package commands
 
 import (
 	"container/list"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -344,12 +345,52 @@ func (x XAddExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	fmt.Println("XAdd to streams ", cmds[1])
 	stream, _ := storage.Streams.LoadOrStore(cmds[1], list.New())
 	entries := sync.Map{}
+	streamAsList := stream.(*list.List)
+	
+	ok, err := validateId(cmds[2], streamAsList)
+	if !ok && err != nil {
+		con.Write(resp.EncodeError(err.Error()))
+		return
+	}
+
 	for i := 3; i < len(cmds)-1; i++ {
 		entries.Store(cmds[i], resp.Value{cmds[i+1], -1})
 		i = i + 1
 	}
-	stream.(*list.List).PushBack(resp.Entry{cmds[2], &entries})
+
+	streamAsList.PushBack(resp.Entry{cmds[2], &entries})
 	con.Write(resp.EncodeBulkString(cmds[2]))
+}
+
+func validateId(id string, l *list.List) (bool, error) {
+	id_parts := strings.Split(id, "-")
+	millis, err := strconv.Atoi(id_parts[0])
+	if err != nil {
+		fmt.Println("Error parsing id millisecond part: ", id_parts[0], err.Error())
+		return false, err
+	}
+	seq, err := strconv.Atoi(id_parts[1])
+	if err != nil {
+		fmt.Println("Error parsing id sequence part: ", id_parts[1], err.Error())
+		return false, err
+	}
+	if millis <= 0 && seq <= 0 {
+		return false, errors.New("ERR The ID specified in XADD must be greater than 0-0")
+	}
+
+	if l.Len() > 0 {
+		entry := l.Back().Value.(resp.Entry)
+		prevId, err := entry.IdSplits()
+		if err != nil {
+			fmt.Println("Error parsing id: ", err.Error())
+			return false, err
+		}
+		if prevId.Millis > millis || (prevId.Millis == millis && prevId.Seq >= seq) {
+			return false, errors.New("ERR The ID specified in XADD is equal or smaller than the target stream top item")
+		}
+	}
+
+	return true, nil
 }
 
 func popBlocking(key string, listStorage *sync.Map) (resp.Value, bool) {

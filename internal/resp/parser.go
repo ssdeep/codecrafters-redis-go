@@ -24,6 +24,27 @@ type Entry struct {
 	ID     string
 	Values *sync.Map
 }
+
+type ID struct {
+	Millis int
+	Seq    int
+}
+
+func (e Entry) IdSplits() (ID, error) {
+	id_splits := strings.Split(e.ID, "-")
+	millis, err := strconv.Atoi(id_splits[0])
+	if err != nil {
+		fmt.Println("Error parsing id millisecond part: ", id_splits[0], err.Error())
+		return ID{0, 0}, err
+	}
+	seq, err := strconv.Atoi(id_splits[1])
+	if err != nil {
+		fmt.Println("Error parsing id sequence part: ", id_splits[1], err.Error())
+		return ID{0, 0}, err
+	}
+	return ID{millis, seq}, nil
+}
+
 type RespDataType int
 
 type RespDataTypeParser interface {
@@ -125,6 +146,10 @@ func EncodeSimpleString(s string) []byte {
 
 func (r IntegersParser) Encode(s int) []byte {
 	return fmt.Appendf(nil, ":%d%s", s, CRLF)
+}
+
+func EncodeError(s string) []byte {
+	return []byte("-" + s + CRLF)
 }
 
 // NullBulkStringsParser handles $-1\r\n.
