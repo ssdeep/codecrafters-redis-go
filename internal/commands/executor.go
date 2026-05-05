@@ -346,9 +346,9 @@ func (x XAddExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	stream, _ := storage.Streams.LoadOrStore(cmds[1], list.New())
 	entries := sync.Map{}
 	streamAsList := stream.(*list.List)
-	
-	ok, err := validateId(cmds[2], streamAsList)
-	if !ok && err != nil {
+
+	validatedID, err := validateId(cmds[2], streamAsList)
+	if validatedID == "" && err != nil {
 		con.Write(resp.EncodeError(err.Error()))
 		return
 	}
@@ -358,24 +358,47 @@ func (x XAddExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 		i = i + 1
 	}
 
-	streamAsList.PushBack(resp.Entry{cmds[2], &entries})
-	con.Write(resp.EncodeBulkString(cmds[2]))
+	streamAsList.PushBack(resp.Entry{validatedID, &entries})
+	con.Write(resp.EncodeBulkString(validatedID))
 }
 
-func validateId(id string, l *list.List) (bool, error) {
+func validateId(id string, l *list.List) (string, error) {
 	id_parts := strings.Split(id, "-")
 	millis, err := strconv.Atoi(id_parts[0])
 	if err != nil {
 		fmt.Println("Error parsing id millisecond part: ", id_parts[0], err.Error())
-		return false, err
+		return "", err
 	}
-	seq, err := strconv.Atoi(id_parts[1])
-	if err != nil {
-		fmt.Println("Error parsing id sequence part: ", id_parts[1], err.Error())
-		return false, err
+	var seq int
+	if id_parts[1] == "*" && l.Len() == 0 {
+		if millis == 0 {
+			seq = 1
+		} else {
+			seq = 0
+		}
+	} else if id_parts[1] == "*" && l.Len() > 0 {
+		entry := l.Back().Value.(resp.Entry)
+		prevId, err := entry.IdSplits()
+		if err != nil {
+			fmt.Println("Error parsing id: ", err.Error())
+			return "", err
+		}
+		if prevId.Millis != millis {
+			seq = 0
+		} else {
+			seq = prevId.Seq + 1
+		}
+
+	} else {
+		seq, err = strconv.Atoi(id_parts[1])
+		if err != nil {
+			fmt.Println("Error parsing id sequence part: ", id_parts[1], err.Error())
+			return "", err
+		}
 	}
+
 	if millis <= 0 && seq <= 0 {
-		return false, errors.New("ERR The ID specified in XADD must be greater than 0-0")
+		return "", errors.New("ERR The ID specified in XADD must be greater than 0-0")
 	}
 
 	if l.Len() > 0 {
@@ -383,14 +406,14 @@ func validateId(id string, l *list.List) (bool, error) {
 		prevId, err := entry.IdSplits()
 		if err != nil {
 			fmt.Println("Error parsing id: ", err.Error())
-			return false, err
+			return "", err
 		}
 		if prevId.Millis > millis || (prevId.Millis == millis && prevId.Seq >= seq) {
-			return false, errors.New("ERR The ID specified in XADD is equal or smaller than the target stream top item")
+			return "", errors.New("ERR The ID specified in XADD is equal or smaller than the target stream top item")
 		}
 	}
 
-	return true, nil
+	return fmt.Sprintf("%d-%d", millis, seq), nil
 }
 
 func popBlocking(key string, listStorage *sync.Map) (resp.Value, bool) {
