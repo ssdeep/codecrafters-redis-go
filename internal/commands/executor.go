@@ -363,13 +363,32 @@ func (x XAddExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 }
 
 func validateId(id string, l *list.List) (string, error) {
+	if id == "*" && l.Len() == 0 {
+		return fmt.Sprintf("%d-0", time.Now().UnixMilli()), nil
+	} else if id == "*" && l.Len() > 0 {
+		entry := l.Back().Value.(resp.Entry)
+		prevId, err := entry.IdSplits()
+
+		if err != nil {
+			fmt.Println("Error parsing id: ", err.Error())
+			return "", err
+		}
+		nowMs := time.Now().UnixMilli()
+
+		if prevId.Millis == nowMs {
+			return fmt.Sprintf("%d-%d", prevId.Millis, prevId.Seq+1), nil
+		} else {
+			return fmt.Sprintf("%d-0", nowMs), nil
+		}
+	}
+
 	id_parts := strings.Split(id, "-")
-	millis, err := strconv.Atoi(id_parts[0])
+	millis, err := strconv.ParseInt(id_parts[0], 10, 64)
 	if err != nil {
 		fmt.Println("Error parsing id millisecond part: ", id_parts[0], err.Error())
 		return "", err
 	}
-	var seq int
+	var seq int64
 	if id_parts[1] == "*" && l.Len() == 0 {
 		if millis == 0 {
 			seq = 1
@@ -390,7 +409,7 @@ func validateId(id string, l *list.List) (string, error) {
 		}
 
 	} else {
-		seq, err = strconv.Atoi(id_parts[1])
+		seq, err = strconv.ParseInt(id_parts[1], 10, 64)
 		if err != nil {
 			fmt.Println("Error parsing id sequence part: ", id_parts[1], err.Error())
 			return "", err

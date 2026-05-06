@@ -26,18 +26,18 @@ type Entry struct {
 }
 
 type ID struct {
-	Millis int
-	Seq    int
+	Millis int64
+	Seq    int64
 }
 
 func (e Entry) IdSplits() (ID, error) {
 	id_splits := strings.Split(e.ID, "-")
-	millis, err := strconv.Atoi(id_splits[0])
+	millis, err := strconv.ParseInt(id_splits[0], 10, 64)
 	if err != nil {
 		fmt.Println("Error parsing id millisecond part: ", id_splits[0], err.Error())
 		return ID{0, 0}, err
 	}
-	seq, err := strconv.Atoi(id_splits[1])
+	seq, err := strconv.ParseInt(id_splits[1], 10, 64)
 	if err != nil {
 		fmt.Println("Error parsing id sequence part: ", id_splits[1], err.Error())
 		return ID{0, 0}, err
