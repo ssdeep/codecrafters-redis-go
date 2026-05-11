@@ -509,51 +509,58 @@ func (x XRangeExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 }
 
 func (x XReadExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
-	key := cmds[2]
-	totalKeys := fmt.Sprintf("*%d%s", 1, resp.CRLF)
+	totalKeyCount := len(cmds[2:]) / 2
+	backIndex := len(cmds) - 1
+	totalKeys := fmt.Sprintf("*%d%s", totalKeyCount, resp.CRLF)
 	_, err := con.Write([]byte(totalKeys))
 	if err != nil {
 		fmt.Println("Error writing to client: ", err.Error())
 		return
 	}
-	if values, ok := storage.Streams.Load(key); ok {
-		var from, to resp.ID
-		var err error
-		from, err = idExtractor(cmds[3])
-		if err != nil {
-			fmt.Println("Error parsing from: ", err.Error())
-			return
-		}
-		to, err = idExtractor("+")
-		if err != nil {
-			fmt.Println("Error parsing to: ", err.Error())
-			return
-		}
-		result, err := extractResultsBetweenIds(values.(*list.List), from, to)
-		if err != nil {
-			fmt.Println("Error extracting results between ids: ", err.Error())
-			return
-		}
-		fmt.Println("Added for result ", result.Len())
+	for i := range totalKeyCount {
+		keyIndex := i + 2
+		key := cmds[keyIndex]
 
-		arrParser := resp.ArraysParser{}
-		startStream := fmt.Sprintf("*%d%s", 2, resp.CRLF)
-		byteArr := []byte(startStream)
-		con.Write(byteArr)
-		con.Write(resp.EncodeBulkString(key))
-		_, err = con.Write(arrParser.EncodeEntries(result))
-		if err != nil {
-			fmt.Println("Error writing to client: ", err.Error())
+		if values, ok := storage.Streams.Load(key); ok {
+			var from, to resp.ID
+			var err error
+			from, err = idExtractor(cmds[backIndex-i])
+			if err != nil {
+				fmt.Println("Error parsing from: ", err.Error())
+				return
+			}
+			to, err = idExtractor("+")
+			if err != nil {
+				fmt.Println("Error parsing to: ", err.Error())
+				return
+			}
+			result, err := extractResultsBetweenIds(values.(*list.List), from, to)
+			if err != nil {
+				fmt.Println("Error extracting results between ids: ", err.Error())
+				return
+			}
+			fmt.Println("Added for result ", result.Len())
+
+			arrParser := resp.ArraysParser{}
+			startStream := fmt.Sprintf("*%d%s", 2, resp.CRLF)
+			byteArr := []byte(startStream)
+			con.Write(byteArr)
+			con.Write(resp.EncodeBulkString(key))
+			_, err = con.Write(arrParser.EncodeEntries(result))
+			if err != nil {
+				fmt.Println("Error writing to client: ", err.Error())
+				return
+			}
+
+		} else {
+			_, err := con.Write(resp.EncodeNullArray())
+			if err != nil {
+				fmt.Println("Error writing to client: ", err.Error())
+			}
 			return
 		}
-
-	} else {
-		_, err := con.Write(resp.EncodeNullArray())
-		if err != nil {
-			fmt.Println("Error writing to client: ", err.Error())
-		}
-		return
 	}
+
 }
 
 func extractResultsBetweenIds(entries *list.List, from, to resp.ID) (*list.List, error) {
