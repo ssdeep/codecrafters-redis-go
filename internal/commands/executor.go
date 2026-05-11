@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"strconv"
 	"strings"
@@ -469,7 +470,12 @@ func (x XRangeExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 			fmt.Println("Error parsing from: ", err.Error())
 			return
 		}
-		to, err = resp.IdSplits(cmds[3])
+		if cmds[3] == "+" {
+			to = resp.ID{Millis: math.MaxInt64, Seq: math.MaxInt64}
+		} else {
+			to, err = resp.IdSplits(cmds[3])
+		}
+
 		if err != nil {
 			fmt.Println("Error parsing to: ", err.Error())
 			return
