@@ -446,7 +446,7 @@ func popBlocking(key string, listStorage *sync.Map) (resp.Value, bool) {
 			l2.Remove(l2.Front())
 			return resp.Value{item, -1}, true
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(1 * time.Millisecond)
 	}
 
 	panic("Should never reach here")
