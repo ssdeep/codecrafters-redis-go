@@ -38,6 +38,7 @@ var executors = map[string]Executor{
 	"TYPE":   TypeExecutor{},
 	"XADD":   XAddExecutor{},
 	"XRANGE": XRangeExecutor{},
+	"XREAD":  XReadExecutor{},
 }
 
 func Execute(cmds []string, con net.Conn, storage *Storage) {
@@ -66,6 +67,8 @@ type TypeExecutor struct{}
 type XAddExecutor struct{}
 
 type XRangeExecutor struct{}
+
+type XReadExecutor struct{}
 
 func (p PingExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	con.Write([]byte("+PONG\r\n"))
@@ -453,50 +456,40 @@ func popBlocking(key string, listStorage *sync.Map) (resp.Value, bool) {
 	panic("Should never reach here")
 }
 
+func idExtractor(s string) (resp.ID, error) {
+	if s == "-" {
+		return resp.ID{Millis: 0, Seq: 0}, nil
+	} else if s == "+" {
+		return resp.ID{Millis: math.MaxInt64, Seq: math.MaxInt64}, nil
+	} else {
+		return resp.IdSplits(s)
+	}
+
+}
+
 func (x XRangeExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	key := cmds[1]
-
 	if values, ok := storage.Streams.Load(key); ok {
-		result := list.New()
+
 		var from, to resp.ID
 		var err error
-		if cmds[2] == "-" {
-			from = resp.ID{Millis: 0, Seq: 0}
-		} else {
-			from, err = resp.IdSplits(cmds[2])
-		}
+		from, err = idExtractor(cmds[2])
 
 		if err != nil {
 			fmt.Println("Error parsing from: ", err.Error())
 			return
 		}
-		if cmds[3] == "+" {
-			to = resp.ID{Millis: math.MaxInt64, Seq: math.MaxInt64}
-		} else {
-			to, err = resp.IdSplits(cmds[3])
-		}
+		to, err = idExtractor(cmds[3])
 
 		if err != nil {
 			fmt.Println("Error parsing to: ", err.Error())
 			return
 		}
-		l := values.(*list.List).Front()
-		fmt.Println("List of values at key", key, " is ")
-		for item := l; item != nil; item = item.Next() {
-			entry := item.Value.(**resp.Entry)
-			entryId, err := (*entry).IdSplits()
-			fmt.Println("Entry id is ", entryId)
-			if err != nil {
-				fmt.Println("Unexpected Error in a saved entry ", err.Error())
-				return
-			}
 
-			if entryId.Gte(from) && entryId.Lte(to) {
-				fmt.Println("Adding entry ", entryId)
-				result.PushBack(&entry)
-			}
-			//l = *l.Next()
-			//l.Remove(l.Front())
+		result, err := extractResultsBetweenIds(values.(*list.List), from, to)
+		if err != nil {
+			fmt.Println("Error extracting results between ids: ", err.Error())
+			return
 		}
 		fmt.Println("Added for result ", result.Len())
 		arrParser := resp.ArraysParser{}
@@ -513,4 +506,79 @@ func (x XRangeExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 		return
 	}
 
+}
+
+func (x XReadExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+	key := cmds[2]
+	totalKeys := fmt.Sprintf("*%d%s", 1, resp.CRLF)
+	_, err := con.Write([]byte(totalKeys))
+	if err != nil {
+		fmt.Println("Error writing to client: ", err.Error())
+		return
+	}
+	if values, ok := storage.Streams.Load(key); ok {
+		var from, to resp.ID
+		var err error
+		from, err = idExtractor(cmds[3])
+		if err != nil {
+			fmt.Println("Error parsing from: ", err.Error())
+			return
+		}
+		to, err = idExtractor("+")
+		if err != nil {
+			fmt.Println("Error parsing to: ", err.Error())
+			return
+		}
+		result, err := extractResultsBetweenIds(values.(*list.List), from, to)
+		if err != nil {
+			fmt.Println("Error extracting results between ids: ", err.Error())
+			return
+		}
+		fmt.Println("Added for result ", result.Len())
+
+		arrParser := resp.ArraysParser{}
+		startStream := fmt.Sprintf("*%d%s", 2, resp.CRLF)
+		byteArr := []byte(startStream)
+		con.Write(byteArr)
+		con.Write(resp.EncodeBulkString(key))
+		_, err = con.Write(arrParser.EncodeEntries(result))
+		if err != nil {
+			fmt.Println("Error writing to client: ", err.Error())
+			return
+		}
+
+	} else {
+		_, err := con.Write(resp.EncodeNullArray())
+		if err != nil {
+			fmt.Println("Error writing to client: ", err.Error())
+		}
+		return
+	}
+}
+
+func extractResultsBetweenIds(entries *list.List, from, to resp.ID) (*list.List, error) {
+	result := list.New()
+	l := entries.Front()
+	for item := l; item != nil; item = item.Next() {
+		entry := item.Value.(**resp.Entry)
+		entryId, err := (*entry).IdSplits()
+
+		if err != nil {
+			fmt.Println("Unexpected Error in a saved entry ", err.Error())
+			return nil, err
+		}
+		if entryId.Lt(from) {
+			continue
+		}
+
+		if entryId.Gte(from) && entryId.Lte(to) {
+			fmt.Println("Adding entry ", entryId)
+			result.PushBack(&entry)
+		}
+
+		if entryId.Gt(to) {
+			break
+		}
+	}
+	return result, nil
 }
