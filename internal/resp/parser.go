@@ -21,13 +21,44 @@ type Value struct {
 }
 
 type Entry struct {
-	ID     string
-	Values *sync.Map
+	ID          string
+	Values      *sync.Map
+	orderedKeys []string
+}
+
+func NewEntry(id string) *Entry {
+	return &Entry{ID: id, Values: &sync.Map{}, orderedKeys: []string{}}
+}
+
+func (e *Entry) AddValue(key string, value string) {
+	if e.Values == nil {
+		e.Values = &sync.Map{}
+	}
+	e.orderedKeys = append(e.orderedKeys, key)
+	e.Values.Store(key, Value{value, -1})
 }
 
 type ID struct {
 	Millis int64
 	Seq    int64
+}
+
+func (id ID) Eq(other ID) bool {
+	return id.Millis == other.Millis && id.Seq == other.Seq
+}
+func (id ID) Gt(other ID) bool {
+	return id.Millis > other.Millis || (id.Millis == other.Millis && id.Seq > other.Seq)
+}
+func (id ID) Gte(other ID) bool {
+	return id.Gt(other) || id.Eq(other)
+}
+
+func (id ID) Lt(other ID) bool {
+	return id.Millis < other.Millis || (id.Millis == other.Millis && id.Seq < other.Seq)
+}
+
+func (id ID) Lte(other ID) bool {
+	return id.Lt(other) || id.Eq(other)
 }
 
 func (e Entry) IdSplits() (ID, error) {
@@ -42,6 +73,27 @@ func (e Entry) IdSplits() (ID, error) {
 		fmt.Println("Error parsing id sequence part: ", id_splits[1], err.Error())
 		return ID{0, 0}, err
 	}
+	return ID{millis, seq}, nil
+}
+
+func IdSplits(s string) (ID, error) {
+	id_splits := strings.Split(s, "-")
+	millis, err := strconv.ParseInt(id_splits[0], 10, 64)
+	if err != nil {
+		fmt.Println("Error parsing id millisecond part: ", id_splits[0], err.Error())
+		return ID{0, 0}, err
+	}
+
+	var seq int64
+	if len(id_splits) == 2 {
+		seq, err = strconv.ParseInt(id_splits[1], 10, 64)
+		if err != nil {
+			fmt.Println("Error parsing id sequence part: ", id_splits[1], err.Error())
+		}
+	} else {
+		seq = 0
+	}
+
 	return ID{millis, seq}, nil
 }
 
@@ -229,12 +281,55 @@ func (r ArraysParser) Encode(l list.List) []byte {
 			if val, ok := items.Value.(Value); ok {
 				buf.Write(EncodeBulkString(val.Name))
 			}
-			//ok {
-			//	buf.Write(EncodeBulkString(val))
-			//}
+
 			items = items.Next()
 		}
 	}
+	return buf.Bytes()
+}
+
+func (r ArraysParser) EncodeEntries(l *list.List) []byte {
+	var buf bytes.Buffer
+	leng := l.Len()
+	buf.Write([]byte(fmt.Sprintf("*%d%s", leng, CRLF)))
+	fmt.Println("Encoded bytes length at beginning: ", buf.Len())
+	if leng > 0 {
+		items := l.Front()
+		for range leng {
+			if items == nil {
+				panic("items is nil")
+			}
+			fmt.Printf("Encoded value type %t\n", items.Value)
+
+			if val, ok := items.Value.(***Entry); ok {
+				buf.Write([]byte(fmt.Sprintf("*%d%s", 2, CRLF)))
+				deref := *val
+				der := *deref
+				buf.Write(EncodeBulkString(der.ID))
+				fmt.Println("Encoded bytes length after ID: ", buf.Len())
+				values := der.Values
+				orderedKeys := der.orderedKeys
+				buf.Write([]byte(fmt.Sprintf("*%d%s", 2*len(orderedKeys), CRLF)))
+				for _, key := range orderedKeys {
+					val, ok := values.Load(key)
+					if ok {
+						buf.Write(EncodeBulkString(key))
+						buf.Write(EncodeBulkString(val.(Value).Name))
+					}
+
+				}
+				fmt.Println("Encoded bytes length after all keys: ", buf.Len())
+			} else {
+				fmt.Printf("items %s is not of type Entry \n", items.Value)
+				panic("items is not of type Entry")
+			}
+
+			items = items.Next()
+			fmt.Println("Encoded bytes length after items: ", buf.Len())
+		}
+	}
+
+	fmt.Println("Encoded bytes length: ", len(buf.Bytes()))
 	return buf.Bytes()
 }
 

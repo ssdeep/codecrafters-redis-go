@@ -36,6 +36,7 @@ var executors = map[string]Executor{
 	"BLPOP":  BLPopExecutor{},
 	"TYPE":   TypeExecutor{},
 	"XADD":   XAddExecutor{},
+	"XRANGE": XRangeExecutor{},
 }
 
 func Execute(cmds []string, con net.Conn, storage *Storage) {
@@ -62,6 +63,8 @@ type BLPopExecutor struct{}
 type TypeExecutor struct{}
 
 type XAddExecutor struct{}
+
+type XRangeExecutor struct{}
 
 func (p PingExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	con.Write([]byte("+PONG\r\n"))
@@ -344,7 +347,6 @@ func (t TypeExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 func (x XAddExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	fmt.Println("XAdd to streams ", cmds[1])
 	stream, _ := storage.Streams.LoadOrStore(cmds[1], list.New())
-	entries := sync.Map{}
 	streamAsList := stream.(*list.List)
 
 	validatedID, err := validateId(cmds[2], streamAsList)
@@ -352,13 +354,13 @@ func (x XAddExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 		con.Write(resp.EncodeError(err.Error()))
 		return
 	}
-
+	entry := resp.NewEntry(validatedID)
+	streamAsList.PushBack(&entry)
 	for i := 3; i < len(cmds)-1; i++ {
-		entries.Store(cmds[i], resp.Value{cmds[i+1], -1})
+		entry.AddValue(cmds[i], cmds[i+1])
 		i = i + 1
 	}
 
-	streamAsList.PushBack(resp.Entry{validatedID, &entries})
 	con.Write(resp.EncodeBulkString(validatedID))
 }
 
@@ -396,7 +398,8 @@ func validateId(id string, l *list.List) (string, error) {
 			seq = 0
 		}
 	} else if id_parts[1] == "*" && l.Len() > 0 {
-		entry := l.Back().Value.(resp.Entry)
+		entryRef := l.Back().Value.(**resp.Entry)
+		entry := *entryRef
 		prevId, err := entry.IdSplits()
 		if err != nil {
 			fmt.Println("Error parsing id: ", err.Error())
@@ -421,8 +424,8 @@ func validateId(id string, l *list.List) (string, error) {
 	}
 
 	if l.Len() > 0 {
-		entry := l.Back().Value.(resp.Entry)
-		prevId, err := entry.IdSplits()
+		entry := l.Back().Value.(**resp.Entry)
+		prevId, err := (*entry).IdSplits()
 		if err != nil {
 			fmt.Println("Error parsing id: ", err.Error())
 			return "", err
@@ -447,4 +450,54 @@ func popBlocking(key string, listStorage *sync.Map) (resp.Value, bool) {
 	}
 
 	panic("Should never reach here")
+}
+
+func (x XRangeExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+	key := cmds[1]
+
+	if values, ok := storage.Streams.Load(key); ok {
+		result := list.New()
+		from, err := resp.IdSplits(cmds[2])
+		if err != nil {
+			fmt.Println("Error parsing from: ", err.Error())
+			return
+		}
+		to, err := resp.IdSplits(cmds[3])
+		if err != nil {
+			fmt.Println("Error parsing to: ", err.Error())
+			return
+		}
+		l := values.(*list.List).Front()
+		fmt.Println("List of values at key", key, " is ")
+		for item := l; item != nil; item = item.Next() {
+			entry := item.Value.(**resp.Entry)
+			entryId, err := (*entry).IdSplits()
+			fmt.Println("Entry id is ", entryId)
+			if err != nil {
+				fmt.Println("Unexpected Error in a saved entry ", err.Error())
+				return
+			}
+
+			if entryId.Gte(from) && entryId.Lte(to) {
+				fmt.Println("Adding entry ", entryId)
+				result.PushBack(&entry)
+			}
+			//l = *l.Next()
+			//l.Remove(l.Front())
+		}
+		fmt.Println("Added for result ", result.Len())
+		arrParser := resp.ArraysParser{}
+		_, err = con.Write(arrParser.EncodeEntries(result))
+		if err != nil {
+			fmt.Println("Error writing to client: ", err.Error())
+			return
+		}
+	} else {
+		_, err := con.Write(resp.EncodeNullArray())
+		if err != nil {
+			fmt.Println("Error writing to client: ", err.Error())
+		}
+		return
+	}
+
 }
