@@ -457,12 +457,19 @@ func (x XRangeExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 
 	if values, ok := storage.Streams.Load(key); ok {
 		result := list.New()
-		from, err := resp.IdSplits(cmds[2])
+		var from, to resp.ID
+		var err error
+		if cmds[2] == "-" {
+			from = resp.ID{Millis: 0, Seq: 0}
+		} else {
+			from, err = resp.IdSplits(cmds[2])
+		}
+
 		if err != nil {
 			fmt.Println("Error parsing from: ", err.Error())
 			return
 		}
-		to, err := resp.IdSplits(cmds[3])
+		to, err = resp.IdSplits(cmds[3])
 		if err != nil {
 			fmt.Println("Error parsing to: ", err.Error())
 			return
