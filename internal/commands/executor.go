@@ -577,6 +577,18 @@ func (x XReadExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 			return
 		}
 
+		if cmds[5] == "$" {
+			if storage.hasGreaterKeyID(cmds[4], "0-0") {
+				items, _ := storage.Streams.Load(cmds[4])
+				id := items.(*list.List).Back().Value.(**resp.Entry)
+				cmds[5] = (*id).ID
+			} else {
+				cmds[5] = fmt.Sprintf("%d-0", time.Now().UnixMilli())
+			}
+
+			fmt.Println("Setting block ID to ", cmds[5])
+		}
+
 		fmt.Println("Timeout is ", timeout)
 		if timeout == 0 {
 			waitchan := make(chan bool)
