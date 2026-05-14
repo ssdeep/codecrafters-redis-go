@@ -292,21 +292,21 @@ func (r ArraysParser) EncodeEntries(l *list.List) []byte {
 	var buf bytes.Buffer
 	leng := l.Len()
 	buf.Write([]byte(fmt.Sprintf("*%d%s", leng, CRLF)))
-	fmt.Println("Encoded bytes length at beginning: ", buf.Len())
+	//fmt.Println("Encoded bytes length at beginning: ", buf.Len())
 	if leng > 0 {
 		items := l.Front()
 		for range leng {
 			if items == nil {
 				panic("items is nil")
 			}
-			fmt.Printf("Encoded value type %t\n", items.Value)
+			//fmt.Printf("Encoded value type %t\n", items.Value)
 
 			if val, ok := items.Value.(***Entry); ok {
 				buf.Write([]byte(fmt.Sprintf("*%d%s", 2, CRLF)))
 				deref := *val
 				der := *deref
 				buf.Write(EncodeBulkString(der.ID))
-				fmt.Println("Encoded bytes length after ID: ", buf.Len())
+				//fmt.Println("Encoded bytes length after ID: ", buf.Len())
 				values := der.Values
 				orderedKeys := der.orderedKeys
 				buf.Write([]byte(fmt.Sprintf("*%d%s", 2*len(orderedKeys), CRLF)))
@@ -471,7 +471,7 @@ func Type(b byte) RespDataTypeParser {
 		fmt.Printf("unknown type byte: %q\n", b)
 		return RawStringParser{}
 	} else {
-		fmt.Printf("type byte: %T\n", str)
+		//fmt.Printf("type byte: %T\n", str)
 		return str
 	}
 }

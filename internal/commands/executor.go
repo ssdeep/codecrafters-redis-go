@@ -42,7 +42,7 @@ var executors = map[string]Executor{
 }
 
 func Execute(cmds []string, con net.Conn, storage *Storage) {
-	executors[cmds[0]].Execute(cmds, con, storage)
+	executors[strings.ToUpper(cmds[0])].Execute(cmds, con, storage)
 }
 
 type PingExecutor struct{}
@@ -69,6 +69,55 @@ type XAddExecutor struct{}
 type XRangeExecutor struct{}
 
 type XReadExecutor struct{}
+
+func (s Storage) hasGreaterKeyID(key string, id string) bool {
+	currentID, err := resp.IdSplits(id)
+	if err != nil {
+		fmt.Println("Error parsing id: ", err.Error())
+		return false
+	}
+
+	if _, ok := s.Streams.Load(key); !ok {
+		return false
+	}
+
+	some, _ := s.Streams.Load(key)
+	stream := some.(*list.List)
+	if stream == nil {
+		return false
+	}
+	if stream.Len() == 0 {
+		return false
+	}
+
+	streamAsList := stream.Front()
+	//fmt.Printf("Current stream state %t\n", streamAsList)
+
+	if streamAsList == nil || streamAsList.Value == nil {
+		fmt.Println("streamAsList is empty")
+		return false
+	}
+
+	for item, ok := streamAsList.Value.(**resp.Entry); ok; item, ok = streamAsList.Next().Value.(**resp.Entry) {
+		id, err := (**item).IdSplits()
+		//fmt.Println("Comparing ", id, " to ", currentID)
+		if err != nil {
+			fmt.Println("Error parsing id: ", err.Error())
+			return false
+		}
+		if id.Gt(currentID) {
+			fmt.Println("Found greater key id at ", id)
+			return true
+		}
+
+		if streamAsList.Next() == nil {
+			//fmt.Println("Reached end of stream")
+			break
+		}
+	}
+
+	return false
+}
 
 func (p PingExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	con.Write([]byte("+PONG\r\n"))
@@ -486,7 +535,7 @@ func (x XRangeExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 			return
 		}
 
-		result, err := extractResultsBetweenIds(values.(*list.List), from, to)
+		result, err := extractResultsBetweenIds(values.(*list.List), from, to, true)
 		if err != nil {
 			fmt.Println("Error extracting results between ids: ", err.Error())
 			return
@@ -509,6 +558,48 @@ func (x XRangeExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 }
 
 func (x XReadExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+	switch strings.ToUpper(cmds[1]) {
+	case "BLOCK":
+		timeout, err := strconv.ParseFloat(strings.Trim(cmds[2], "\r\n"), 64)
+		if err != nil {
+			fmt.Println("Error parsing timeout: %w", err)
+			return
+		}
+
+		var waitchan = make(chan bool, 1)
+
+		if ok := storage.hasGreaterKeyID(cmds[4], cmds[5]); ok {
+			x.ExecuteRead(cmds[2:], con, storage, false)
+			fmt.Println("Blocking read key is there")
+			//close(waitchan)
+			return
+		} else {
+			go func() {
+				for true {
+					if storage.hasGreaterKeyID(cmds[4], cmds[5]) {
+						waitchan <- true
+						break
+					}
+					time.Sleep(1 * time.Millisecond)
+				}
+			}()
+		}
+		timeAfter := time.After(time.Millisecond * time.Duration(timeout))
+		select {
+		case <-timeAfter:
+			fmt.Printf("Timeout reached after %f ms", timeout)
+			con.Write(resp.EncodeNullArray())
+			//close(waitchan)
+		case <-waitchan:
+			fmt.Println("Blocking read key is there")
+			x.ExecuteRead(cmds[2:], con, storage, false)
+		}
+	case "STREAMS":
+		x.ExecuteRead(cmds, con, storage, true)
+	}
+}
+
+func (x XReadExecutor) ExecuteRead(cmds []string, con net.Conn, storage *Storage, includeStart bool) {
 	totalKeyCount := len(cmds[2:]) / 2
 	backIndex := len(cmds) - 1
 	totalKeys := fmt.Sprintf("*%d%s", totalKeyCount, resp.CRLF)
@@ -534,7 +625,9 @@ func (x XReadExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 				fmt.Println("Error parsing to: ", err.Error())
 				return
 			}
-			result, err := extractResultsBetweenIds(values.(*list.List), from, to)
+
+			fmt.Println("Getting results for ", key, " from ", from, " to ", to)
+			result, err := extractResultsBetweenIds(values.(*list.List), from, to, includeStart)
 			if err != nil {
 				fmt.Println("Error extracting results between ids: ", err.Error())
 				return
@@ -563,7 +656,7 @@ func (x XReadExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 
 }
 
-func extractResultsBetweenIds(entries *list.List, from, to resp.ID) (*list.List, error) {
+func extractResultsBetweenIds(entries *list.List, from, to resp.ID, includeStart bool) (*list.List, error) {
 	result := list.New()
 	l := entries.Front()
 	for item := l; item != nil; item = item.Next() {
@@ -578,7 +671,7 @@ func extractResultsBetweenIds(entries *list.List, from, to resp.ID) (*list.List,
 			continue
 		}
 
-		if entryId.Gte(from) && entryId.Lte(to) {
+		if (includeStart && entryId.Gte(from) || entryId.Gt(from)) && entryId.Lte(to) {
 			fmt.Println("Adding entry ", entryId)
 			result.PushBack(&entry)
 		}
