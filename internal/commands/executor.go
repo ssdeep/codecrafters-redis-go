@@ -20,6 +20,8 @@ type Storage struct {
 	Streams sync.Map
 }
 
+var watchers = make(map[string]map[resp.ID]chan bool)
+
 type Executor interface {
 	Execute(cmds []string, con net.Conn, storage *Storage)
 }
@@ -576,6 +578,24 @@ func (x XReadExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 		}
 
 		fmt.Println("Timeout is ", timeout)
+		if timeout == 0 {
+			waitchan := make(chan bool)
+			go func() {
+				for true {
+					if storage.hasGreaterKeyID(cmds[4], cmds[5]) {
+						waitchan <- true
+						break
+					}
+					time.Sleep(1 * time.Millisecond)
+				}
+			}()
+
+			until := <-waitchan
+			fmt.Println("Indefinite Blocking read key is there until=", until)
+			x.ExecuteRead(cmds[2:], con, storage, false)
+			close(waitchan)
+			return
+		}
 
 		//if ok := storage.hasGreaterKeyID(cmds[4], cmds[5]); ok {
 		//	x.ExecuteRead(cmds[2:], con, storage, false)
