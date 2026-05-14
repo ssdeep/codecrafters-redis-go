@@ -566,24 +566,24 @@ func (x XReadExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 			return
 		}
 
-		var waitchan = make(chan bool, 1)
-
 		if ok := storage.hasGreaterKeyID(cmds[4], cmds[5]); ok {
 			x.ExecuteRead(cmds[2:], con, storage, false)
 			fmt.Println("Blocking read key is there")
 			//close(waitchan)
 			return
-		} else {
-			go func() {
-				for true {
-					if storage.hasGreaterKeyID(cmds[4], cmds[5]) {
-						waitchan <- true
-						break
-					}
-					time.Sleep(1 * time.Millisecond)
-				}
-			}()
 		}
+
+		var waitchan = make(chan bool)
+		go func() {
+			for true {
+				if storage.hasGreaterKeyID(cmds[4], cmds[5]) {
+					waitchan <- true
+					break
+				}
+				time.Sleep(1 * time.Millisecond)
+			}
+		}()
+
 		timeAfter := time.After(time.Millisecond * time.Duration(timeout))
 		select {
 		case <-timeAfter:
