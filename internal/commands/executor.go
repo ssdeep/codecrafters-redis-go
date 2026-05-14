@@ -737,6 +737,7 @@ func (x IncrExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 		valueInt, err := strconv.ParseInt(value.(resp.Value).Name, 10, 64)
 		if err != nil {
 			fmt.Println("Error parsing value: ", err.Error())
+			con.Write(resp.EncodeError("ERR value is not an integer or out of range"))
 			return
 		}
 		storage.Singles.Store(cmds[1], resp.Value{fmt.Sprintf("%d", valueInt+1), value.(resp.Value).Expiry})
