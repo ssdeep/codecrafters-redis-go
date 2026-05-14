@@ -731,8 +731,9 @@ func extractResultsBetweenIds(entries *list.List, from, to resp.ID, includeStart
 
 func (x IncrExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	fmt.Println("Incr ", cmds[1])
+	intParser := resp.IntegersParser{}
 	if value, ok := storage.Singles.Load(cmds[1]); ok {
-		intParser := resp.IntegersParser{}
+
 		valueInt, err := strconv.ParseInt(value.(resp.Value).Name, 10, 64)
 		if err != nil {
 			fmt.Println("Error parsing value: ", err.Error())
@@ -743,6 +744,7 @@ func (x IncrExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 		con.Write(intParser.Encode(newInt))
 
 	} else {
-		storage.Singles.Store(cmds[1], 1)
+		storage.Singles.Store(cmds[1], resp.Value{"1", -1})
+		con.Write(intParser.Encode(1))
 	}
 }
