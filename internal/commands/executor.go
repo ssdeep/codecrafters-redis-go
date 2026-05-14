@@ -39,6 +39,7 @@ var executors = map[string]Executor{
 	"XADD":   XAddExecutor{},
 	"XRANGE": XRangeExecutor{},
 	"XREAD":  XReadExecutor{},
+	"AUTH":   AuthExecutor{},
 }
 
 func Execute(cmds []string, con net.Conn, storage *Storage) {
@@ -69,6 +70,13 @@ type XAddExecutor struct{}
 type XRangeExecutor struct{}
 
 type XReadExecutor struct{}
+
+type AuthExecutor struct{}
+
+func (a AuthExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+	fmt.Println("Authenticating ", cmds[1])
+	con.Write([]byte("+OK\r\n"))
+}
 
 func (s Storage) hasGreaterKeyID(key string, id string) bool {
 	currentID, err := resp.IdSplits(id)
@@ -558,6 +566,7 @@ func (x XRangeExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 }
 
 func (x XReadExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+	fmt.Println("XRead from streams ", cmds[1])
 	switch strings.ToUpper(cmds[1]) {
 	case "BLOCK":
 		timeout, err := strconv.ParseFloat(strings.Trim(cmds[2], "\r\n"), 64)
@@ -566,14 +575,18 @@ func (x XReadExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 			return
 		}
 
-		if ok := storage.hasGreaterKeyID(cmds[4], cmds[5]); ok {
-			x.ExecuteRead(cmds[2:], con, storage, false)
-			fmt.Println("Blocking read key is there")
-			//close(waitchan)
-			return
-		}
+		fmt.Println("Timeout is ", timeout)
+
+		//if ok := storage.hasGreaterKeyID(cmds[4], cmds[5]); ok {
+		//	x.ExecuteRead(cmds[2:], con, storage, false)
+		//	fmt.Println("Blocking read key is there")
+		//	//close(waitchan)
+		//	return
+		//}
 
 		var waitchan = make(chan bool)
+		timenow := time.Now()
+		timeAfter := time.After(time.Millisecond * time.Duration(timeout))
 		go func() {
 			for true {
 				if storage.hasGreaterKeyID(cmds[4], cmds[5]) {
@@ -584,15 +597,20 @@ func (x XReadExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 			}
 		}()
 
-		timeAfter := time.After(time.Millisecond * time.Duration(timeout))
 		select {
-		case <-timeAfter:
-			fmt.Printf("Timeout reached after %f ms", timeout)
-			con.Write(resp.EncodeNullArray())
-			//close(waitchan)
+		case timeafter := <-timeAfter:
+			elapsed := time.Since(timenow).Milliseconds()
+			fmt.Printf("XRead timed out after %f milliseconds elapsed %d, started at %s ended at %s \n", timeout,
+				elapsed,
+				timenow, timeafter)
+			written, err := con.Write(resp.EncodeNullArray())
+			fmt.Println("Error writing to client: ", err.Error(), " written ", written)
 		case <-waitchan:
 			fmt.Println("Blocking read key is there")
+			close(waitchan)
 			x.ExecuteRead(cmds[2:], con, storage, false)
+			//default:
+			//	fmt.Println("No blocking read key is there")
 		}
 	case "STREAMS":
 		x.ExecuteRead(cmds, con, storage, true)

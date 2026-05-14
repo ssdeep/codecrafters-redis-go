@@ -78,6 +78,7 @@ func handleConnection(a net.Conn) {
 		}
 
 		cmds := strings.Split(word, " ")
+		fmt.Println(cmds)
 		commands.Execute(cmds, a, &storage)
 		fmt.Printf("Received: %s\n", word)
 
