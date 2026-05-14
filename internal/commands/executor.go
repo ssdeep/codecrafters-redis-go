@@ -42,6 +42,7 @@ var executors = map[string]Executor{
 	"XRANGE": XRangeExecutor{},
 	"XREAD":  XReadExecutor{},
 	"AUTH":   AuthExecutor{},
+	"INCR":   IncrExecutor{},
 }
 
 func Execute(cmds []string, con net.Conn, storage *Storage) {
@@ -74,6 +75,8 @@ type XRangeExecutor struct{}
 type XReadExecutor struct{}
 
 type AuthExecutor struct{}
+
+type IncrExecutor struct{}
 
 func (a AuthExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	fmt.Println("Authenticating ", cmds[1])
@@ -205,7 +208,7 @@ func pushItems(from string, cmds []string, listStorage *sync.Map) []byte {
 
 		}
 	}
-	return resp.IntegersParser{}.Encode(l2.Len())
+	return resp.IntegersParser{}.Encode(int64(l2.Len()))
 }
 
 func (l LRangeExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
@@ -276,7 +279,7 @@ func (l LLenExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	if l2 == nil {
 		l2 = list.New()
 	}
-	con.Write(resp.IntegersParser{}.Encode(l2.(*list.List).Len()))
+	con.Write(resp.IntegersParser{}.Encode(int64(l2.(*list.List).Len())))
 }
 
 func (l LPopExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
@@ -609,13 +612,6 @@ func (x XReadExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 			return
 		}
 
-		//if ok := storage.hasGreaterKeyID(cmds[4], cmds[5]); ok {
-		//	x.ExecuteRead(cmds[2:], con, storage, false)
-		//	fmt.Println("Blocking read key is there")
-		//	//close(waitchan)
-		//	return
-		//}
-
 		var waitchan = make(chan bool)
 		timenow := time.Now()
 		timeAfter := time.After(time.Millisecond * time.Duration(timeout))
@@ -731,4 +727,22 @@ func extractResultsBetweenIds(entries *list.List, from, to resp.ID, includeStart
 		}
 	}
 	return result, nil
+}
+
+func (x IncrExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+	fmt.Println("Incr ", cmds[1])
+	if value, ok := storage.Singles.Load(cmds[1]); ok {
+		intParser := resp.IntegersParser{}
+		valueInt, err := strconv.ParseInt(value.(resp.Value).Name, 10, 64)
+		if err != nil {
+			fmt.Println("Error parsing value: ", err.Error())
+			return
+		}
+		storage.Singles.Store(cmds[1], resp.Value{fmt.Sprintf("%d", valueInt+1), value.(resp.Value).Expiry})
+		var newInt = valueInt + 1
+		con.Write(intParser.Encode(newInt))
+
+	} else {
+		storage.Singles.Store(cmds[1], 1)
+	}
 }

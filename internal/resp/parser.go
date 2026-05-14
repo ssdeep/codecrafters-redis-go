@@ -196,7 +196,7 @@ func EncodeSimpleString(s string) []byte {
 	return []byte("+" + s + CRLF)
 }
 
-func (r IntegersParser) Encode(s int) []byte {
+func (r IntegersParser) Encode(s int64) []byte {
 	return fmt.Appendf(nil, ":%d%s", s, CRLF)
 }
 
@@ -269,6 +269,11 @@ func (r ArraysParser) Parse(line []byte) (string, error) {
 
 func EncodeNullArray() []byte {
 	return []byte("*-1\r\n")
+}
+
+func EncodeInteger(n int64) []byte {
+	return []byte("*-1\r\n")
+
 }
 
 func (r ArraysParser) Encode(l list.List) []byte {
