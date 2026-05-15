@@ -28,24 +28,25 @@ type Executor interface {
 }
 
 var executors = map[string]Executor{
-	"PING":   PingExecutor{},
-	"SET":    SetExecutor{},
-	"GET":    GetExecutor{},
-	"ECHO":   EchoExecutor{},
-	"RPUSH":  RPushExecutor{},
-	"LPUSH":  LPushExecutor{},
-	"LRANGE": LRangeExecutor{},
-	"LLEN":   LLenExecutor{},
-	"LPOP":   LPopExecutor{},
-	"BLPOP":  BLPopExecutor{},
-	"TYPE":   TypeExecutor{},
-	"XADD":   XAddExecutor{},
-	"XRANGE": XRangeExecutor{},
-	"XREAD":  XReadExecutor{},
-	"AUTH":   AuthExecutor{},
-	"INCR":   IncrExecutor{},
-	"MULTI":  MultiExecutor{},
-	"EXEC":   ExecExecutor{},
+	"PING":    PingExecutor{},
+	"SET":     SetExecutor{},
+	"GET":     GetExecutor{},
+	"ECHO":    EchoExecutor{},
+	"RPUSH":   RPushExecutor{},
+	"LPUSH":   LPushExecutor{},
+	"LRANGE":  LRangeExecutor{},
+	"LLEN":    LLenExecutor{},
+	"LPOP":    LPopExecutor{},
+	"BLPOP":   BLPopExecutor{},
+	"TYPE":    TypeExecutor{},
+	"XADD":    XAddExecutor{},
+	"XRANGE":  XRangeExecutor{},
+	"XREAD":   XReadExecutor{},
+	"AUTH":    AuthExecutor{},
+	"INCR":    IncrExecutor{},
+	"MULTI":   MultiExecutor{},
+	"EXEC":    ExecExecutor{},
+	"DISCARD": DiscardExecutor{},
 }
 
 func Execute(cmds []string, con net.Conn, storage *Storage) {
@@ -84,6 +85,8 @@ type IncrExecutor struct{}
 type MultiExecutor struct{}
 
 type ExecExecutor struct{}
+
+type DiscardExecutor struct{}
 
 func WriteConn(con net.Conn, data []byte) {
 	_, err := con.Write(data)
@@ -765,6 +768,12 @@ func (m MultiExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 		if cmds[0] == "EXEC" {
 			break
 		}
+
+		if cmds[0] == "DISCARD" {
+			fmt.Println("Discarding commands")
+			WriteConn(con, resp.EncodeSimpleString("OK"))
+			return
+		}
 		WriteConn(con, resp.EncodeSimpleString("QUEUED"))
 		fmt.Println(cmds)
 		queue = append(queue, cmds)
@@ -790,4 +799,8 @@ func (m MultiExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 
 func (x ExecExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	WriteConn(con, resp.EncodeError("ERR EXEC without MULTI"))
+}
+
+func (x DiscardExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+	WriteConn(con, resp.EncodeError("ERR DISCARD without MULTI"))
 }
