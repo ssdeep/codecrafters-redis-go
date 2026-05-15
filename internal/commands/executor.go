@@ -43,6 +43,7 @@ var executors = map[string]Executor{
 	"XREAD":  XReadExecutor{},
 	"AUTH":   AuthExecutor{},
 	"INCR":   IncrExecutor{},
+	"MULTI":  MultiExecutor{},
 }
 
 func Execute(cmds []string, con net.Conn, storage *Storage) {
@@ -78,9 +79,18 @@ type AuthExecutor struct{}
 
 type IncrExecutor struct{}
 
+type MultiExecutor struct{}
+
+func WriteConn(con net.Conn, data []byte) {
+	_, err := con.Write(data)
+	if err != nil {
+		fmt.Println("Error writing to connection: ", err.Error())
+	}
+}
+
 func (a AuthExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	fmt.Println("Authenticating ", cmds[1])
-	con.Write([]byte("+OK\r\n"))
+	WriteConn(con, []byte("+OK\r\n"))
 }
 
 func (s Storage) hasGreaterKeyID(key string, id string) bool {
@@ -133,7 +143,7 @@ func (s Storage) hasGreaterKeyID(key string, id string) bool {
 }
 
 func (p PingExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
-	con.Write([]byte("+PONG\r\n"))
+	WriteConn(con, []byte("+PONG\r\n"))
 }
 
 func (s SetExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
@@ -165,31 +175,31 @@ func (s SetExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	}
 	storage.Singles.Store(cmds[1], resp.Value{cmds[2], expiryMs})
 	fmt.Println("Storage: ", storage)
-	con.Write([]byte("+OK\r\n"))
+	WriteConn(con, []byte("+OK\r\n"))
 }
 
 func (g GetExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	fmt.Println("Getting ", cmds[1])
 	fmt.Println("Storage: ", storage)
 	if v, ok := storage.Singles.Load(cmds[1]); !ok {
-		con.Write([]byte("$-1\r\n"))
+		WriteConn(con, []byte("$-1\r\n"))
 	} else {
-		con.Write(resp.EncodeBulkString(v.(resp.Value).Name))
+		WriteConn(con, resp.EncodeBulkString(v.(resp.Value).Name))
 	}
 }
 
 func (e EchoExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
-	con.Write(resp.EncodeBulkString(cmds[1]))
+	WriteConn(con, resp.EncodeBulkString(cmds[1]))
 }
 
 func (r RPushExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	response := pushItems("R", cmds, &storage.Lists)
-	con.Write(response)
+	WriteConn(con, response)
 }
 
 func (r LPushExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	response := pushItems("L", cmds, &storage.Lists)
-	con.Write(response)
+	WriteConn(con, response)
 }
 
 func pushItems(from string, cmds []string, listStorage *sync.Map) []byte {
@@ -228,7 +238,7 @@ func (l LRangeExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	l2, _ := storage.Lists.Load(cmds[1])
 	arrEncoder := resp.ArraysParser{}
 	if l2 == nil {
-		con.Write(arrEncoder.Encode(*list.New()))
+		WriteConn(con, arrEncoder.Encode(*list.New()))
 		return
 	}
 
@@ -249,11 +259,11 @@ func (l LRangeExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	fmt.Println("final adjusted From: ", from, " to: ", to)
 
 	if l3 == nil || l3.Len() == 0 || from >= l3.Len() || from > to {
-		con.Write(arrEncoder.Encode(*list.New()))
+		WriteConn(con, arrEncoder.Encode(*list.New()))
 	} else {
 		maxTo := min(to, l3.Len())
 		subList := scan(l3, from, maxTo)
-		con.Write(arrEncoder.Encode(*subList))
+		WriteConn(con, arrEncoder.Encode(*subList))
 	}
 }
 
@@ -265,10 +275,9 @@ func scan(l *list.List, from, to int) (e *list.List) {
 	}
 	s := to - from
 	elems := list.New()
-	//fmt.Println("Scanning at ", iter.Value.(resp.Value).Name, " elements")
+
 	for range s {
 		elems.PushBack(iter.Value.(resp.Value))
-		//elems = append(elems, iter.Value.(resp.Value))
 		iter = iter.Next()
 	}
 	return elems
@@ -279,7 +288,7 @@ func (l LLenExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	if l2 == nil {
 		l2 = list.New()
 	}
-	con.Write(resp.IntegersParser{}.Encode(int64(l2.(*list.List).Len())))
+	WriteConn(con, resp.IntegersParser{}.Encode(int64(l2.(*list.List).Len())))
 }
 
 func (l LPopExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
@@ -288,7 +297,7 @@ func (l LPopExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 			l3 := l2.(*list.List)
 			popped := l3.Front().Value.(resp.Value).Name
 			l3.Remove(l3.Front())
-			con.Write(resp.EncodeBulkString(popped))
+			WriteConn(con, resp.EncodeBulkString(popped))
 		} else if len(cmds) == 3 {
 			l3 := l2.(*list.List)
 			count, err := strconv.Atoi(cmds[2])
@@ -304,7 +313,7 @@ func (l LPopExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 				l3.Remove(l3.Front())
 			}
 
-			con.Write(arrEncoder.Encode(*poppedElements))
+			WriteConn(con, arrEncoder.Encode(*poppedElements))
 		} else if len(cmds) == 4 {
 			from, err := strconv.Atoi(cmds[2])
 			if err != nil {
@@ -339,11 +348,11 @@ func (l LPopExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 				iter = iter.Next()
 			}
 			arrEncoder := resp.ArraysParser{}
-			con.Write(arrEncoder.Encode(*poppedElements))
+			WriteConn(con, arrEncoder.Encode(*poppedElements))
 		}
 
 	} else {
-		con.Write([]byte("$-1\r\n"))
+		WriteConn(con, []byte("$-1\r\n"))
 	}
 
 }
@@ -366,7 +375,7 @@ func (l BLPopExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 			fmt.Println("Blocking popped: ", popped)
 			response.PushBack(popped)
 			if ok {
-				con.Write(arrEncoder.Encode(*response))
+				WriteConn(con, arrEncoder.Encode(*response))
 			}
 		} else {
 			timenow := time.Now()
@@ -386,10 +395,10 @@ func (l BLPopExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 				fmt.Printf("Blocking pop timed out after %f milliseconds elapsed %d, started at %s ended at %s \n", timeout,
 					elapsed,
 					timenow, timeafter)
-				con.Write(resp.EncodeNullArray())
+				WriteConn(con, resp.EncodeNullArray())
 			case poppedValue := <-popped:
 				response.PushBack(poppedValue)
-				con.Write(arrEncoder.Encode(*response))
+				WriteConn(con, arrEncoder.Encode(*response))
 			}
 		}
 	} else {
@@ -400,13 +409,13 @@ func (l BLPopExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 func (t TypeExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	fmt.Println("Getting type of ", cmds[1])
 	if _, ok := storage.Singles.Load(cmds[1]); ok {
-		con.Write(resp.EncodeSimpleString("string"))
+		WriteConn(con, resp.EncodeSimpleString("string"))
 	} else if _, ok := storage.Lists.Load(cmds[1]); ok {
-		con.Write(resp.EncodeSimpleString("list"))
+		WriteConn(con, resp.EncodeSimpleString("list"))
 	} else if _, ok := storage.Streams.Load(cmds[1]); ok {
-		con.Write(resp.EncodeSimpleString("stream"))
+		WriteConn(con, resp.EncodeSimpleString("stream"))
 	} else {
-		con.Write(resp.EncodeSimpleString("none"))
+		WriteConn(con, resp.EncodeSimpleString("none"))
 	}
 }
 
@@ -417,7 +426,7 @@ func (x XAddExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 
 	validatedID, err := validateId(cmds[2], streamAsList)
 	if validatedID == "" && err != nil {
-		con.Write(resp.EncodeError(err.Error()))
+		WriteConn(con, resp.EncodeError(err.Error()))
 		return
 	}
 	entry := resp.NewEntry(validatedID)
@@ -427,7 +436,7 @@ func (x XAddExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 		i = i + 1
 	}
 
-	con.Write(resp.EncodeBulkString(validatedID))
+	WriteConn(con, resp.EncodeBulkString(validatedID))
 }
 
 func validateId(id string, l *list.List) (string, error) {
@@ -555,16 +564,10 @@ func (x XRangeExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 		}
 		fmt.Println("Added for result ", result.Len())
 		arrParser := resp.ArraysParser{}
-		_, err = con.Write(arrParser.EncodeEntries(result))
-		if err != nil {
-			fmt.Println("Error writing to client: ", err.Error())
-			return
-		}
+		WriteConn(con, arrParser.EncodeEntries(result))
 	} else {
-		_, err := con.Write(resp.EncodeNullArray())
-		if err != nil {
-			fmt.Println("Error writing to client: ", err.Error())
-		}
+		WriteConn(con, resp.EncodeNullArray())
+
 		return
 	}
 
@@ -631,8 +634,7 @@ func (x XReadExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 			fmt.Printf("XRead timed out after %f milliseconds elapsed %d, started at %s ended at %s \n", timeout,
 				elapsed,
 				timenow, timeafter)
-			written, err := con.Write(resp.EncodeNullArray())
-			fmt.Println("Error writing to client: ", err.Error(), " written ", written)
+			WriteConn(con, resp.EncodeNullArray())
 		case <-waitchan:
 			fmt.Println("Blocking read key is there")
 			close(waitchan)
@@ -649,11 +651,7 @@ func (x XReadExecutor) ExecuteRead(cmds []string, con net.Conn, storage *Storage
 	totalKeyCount := len(cmds[2:]) / 2
 	backIndex := len(cmds) - 1
 	totalKeys := fmt.Sprintf("*%d%s", totalKeyCount, resp.CRLF)
-	_, err := con.Write([]byte(totalKeys))
-	if err != nil {
-		fmt.Println("Error writing to client: ", err.Error())
-		return
-	}
+	WriteConn(con, []byte(totalKeys))
 	for i := range totalKeyCount {
 		keyIndex := i + 2
 		key := cmds[keyIndex]
@@ -683,19 +681,11 @@ func (x XReadExecutor) ExecuteRead(cmds []string, con net.Conn, storage *Storage
 			arrParser := resp.ArraysParser{}
 			startStream := fmt.Sprintf("*%d%s", 2, resp.CRLF)
 			byteArr := []byte(startStream)
-			con.Write(byteArr)
-			con.Write(resp.EncodeBulkString(key))
-			_, err = con.Write(arrParser.EncodeEntries(result))
-			if err != nil {
-				fmt.Println("Error writing to client: ", err.Error())
-				return
-			}
-
+			WriteConn(con, byteArr)
+			WriteConn(con, resp.EncodeBulkString(key))
+			WriteConn(con, arrParser.EncodeEntries(result))
 		} else {
-			_, err := con.Write(resp.EncodeNullArray())
-			if err != nil {
-				fmt.Println("Error writing to client: ", err.Error())
-			}
+			WriteConn(con, resp.EncodeNullArray())
 			return
 		}
 	}
@@ -737,15 +727,40 @@ func (x IncrExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 		valueInt, err := strconv.ParseInt(value.(resp.Value).Name, 10, 64)
 		if err != nil {
 			fmt.Println("Error parsing value: ", err.Error())
-			con.Write(resp.EncodeError("ERR value is not an integer or out of range"))
+			WriteConn(con, resp.EncodeError("ERR value is not an integer or out of range"))
 			return
 		}
 		storage.Singles.Store(cmds[1], resp.Value{fmt.Sprintf("%d", valueInt+1), value.(resp.Value).Expiry})
 		var newInt = valueInt + 1
-		con.Write(intParser.Encode(newInt))
+		WriteConn(con, intParser.Encode(newInt))
 
 	} else {
 		storage.Singles.Store(cmds[1], resp.Value{"1", -1})
-		con.Write(intParser.Encode(1))
+		WriteConn(con, intParser.Encode(1))
 	}
+}
+
+func (m MultiExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+
+	WriteConn(con, resp.EncodeSimpleString("OK"))
+
+	queue := [][]string{}
+
+	for {
+		word, err := resp.Parse(con)
+		if err != nil && err.Error() == "EOF" {
+			fmt.Println("Connection closed")
+			con.Close()
+			return
+		} else if err != nil {
+			fmt.Println("Error parsing: ", err.Error())
+			return
+		}
+
+		cmds := strings.Split(word, " ")
+		WriteConn(con, resp.EncodeSimpleString("QUEUED"))
+		fmt.Println(cmds)
+		queue = append(queue, cmds)
+	}
+
 }

@@ -63,8 +63,6 @@ func main() {
 }
 
 func handleConnection(a net.Conn) {
-
-	fmt.Println("Connected")
 	for {
 
 		word, err := resp.Parse(a)
