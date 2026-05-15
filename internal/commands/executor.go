@@ -769,6 +769,11 @@ func (m MultiExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 		queue = append(queue, cmds)
 	}
 
+	if len(queue) == 0 {
+		arrParser := resp.ArraysParser{}
+		WriteConn(con, arrParser.Encode(*list.New()))
+		return
+	}
 	for i := range queue {
 		Execute(queue[i], con, storage)
 	}
