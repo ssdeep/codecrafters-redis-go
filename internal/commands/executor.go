@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"bytes"
 	"container/list"
 	"errors"
 	"fmt"
@@ -774,6 +775,13 @@ func (m MultiExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 		WriteConn(con, arrParser.Encode(*list.New()))
 		return
 	}
+	var buf bytes.Buffer
+	_, err := fmt.Fprintf(&buf, "*%d%s", len(queue), resp.CRLF)
+	if err != nil {
+		fmt.Println("Error writing to buffer: ", err.Error())
+		return
+	}
+	WriteConn(con, buf.Bytes())
 	for i := range queue {
 		Execute(queue[i], con, storage)
 	}
