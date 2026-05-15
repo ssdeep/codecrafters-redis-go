@@ -44,6 +44,7 @@ var executors = map[string]Executor{
 	"AUTH":   AuthExecutor{},
 	"INCR":   IncrExecutor{},
 	"MULTI":  MultiExecutor{},
+	"EXEC":   ExecExecutor{},
 }
 
 func Execute(cmds []string, con net.Conn, storage *Storage) {
@@ -80,6 +81,8 @@ type AuthExecutor struct{}
 type IncrExecutor struct{}
 
 type MultiExecutor struct{}
+
+type ExecExecutor struct{}
 
 func WriteConn(con net.Conn, data []byte) {
 	_, err := con.Write(data)
@@ -758,9 +761,20 @@ func (m MultiExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 		}
 
 		cmds := strings.Split(word, " ")
+		if cmds[0] == "EXEC" {
+			break
+		}
 		WriteConn(con, resp.EncodeSimpleString("QUEUED"))
 		fmt.Println(cmds)
 		queue = append(queue, cmds)
 	}
 
+	for i := range queue {
+		Execute(queue[i], con, storage)
+	}
+
+}
+
+func (x ExecExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+	WriteConn(con, resp.EncodeError("ERR EXEC without MULTI"))
 }
