@@ -5,11 +5,10 @@ import (
 	"net"
 	"os"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/codecrafters-io/redis-starter-go/internal/commands"
 	"github.com/codecrafters-io/redis-starter-go/internal/resp"
+	"github.com/codecrafters-io/redis-starter-go/internal/storage"
 )
 
 // Ensures gofmt doesn't remove the "net" and "os" imports in stage 1 (feel free to remove this!)
@@ -21,28 +20,12 @@ var _ = os.Exit
 //	expiry int64
 //}
 
-var storage = commands.Storage{
-	Singles: sync.Map{},
-	Lists:   sync.Map{},
-	Streams: sync.Map{},
-}
-
-func cleanup() {
-	for {
-		storage.Singles.Range(func(k, v any) bool {
-			if val := v.(resp.Value); val.Expiry != -1 && val.Expiry < time.Now().UnixMilli() {
-				storage.Singles.Delete(k)
-			}
-			return true
-		})
-		time.Sleep(1 * time.Millisecond)
-	}
-}
+var store = storage.NewStorage()
 
 func main() {
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
 	fmt.Println("Go kv store client")
-	go cleanup()
+	go store.Cleanup()
 	// Uncomment the code below to pass the first stage
 
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
@@ -77,7 +60,7 @@ func handleConnection(a net.Conn) {
 
 		cmds := strings.Split(word, " ")
 		fmt.Println(cmds)
-		commands.Execute(cmds, a, &storage)
+		commands.Execute(cmds, a, store)
 		fmt.Printf("Received: %s\n", word)
 
 	}

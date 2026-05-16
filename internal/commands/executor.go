@@ -13,18 +13,11 @@ import (
 	"time"
 
 	"github.com/codecrafters-io/redis-starter-go/internal/resp"
+	"github.com/codecrafters-io/redis-starter-go/internal/storage"
 )
 
-type Storage struct {
-	Singles sync.Map
-	Lists   sync.Map
-	Streams sync.Map
-}
-
-var watchers = make(map[string]map[resp.ID]chan bool)
-
 type Executor interface {
-	Execute(cmds []string, con net.Conn, storage *Storage)
+	Execute(cmds []string, con net.Conn, storage *storage.Storage)
 }
 
 var executors = map[string]Executor{
@@ -47,9 +40,10 @@ var executors = map[string]Executor{
 	"MULTI":   MultiExecutor{},
 	"EXEC":    ExecExecutor{},
 	"DISCARD": DiscardExecutor{},
+	"WATCH":   WatchExecutor{},
 }
 
-func Execute(cmds []string, con net.Conn, storage *Storage) {
+func Execute(cmds []string, con net.Conn, storage *storage.Storage) {
 	executors[strings.ToUpper(cmds[0])].Execute(cmds, con, storage)
 }
 
@@ -88,6 +82,8 @@ type ExecExecutor struct{}
 
 type DiscardExecutor struct{}
 
+type WatchExecutor struct{}
+
 func WriteConn(con net.Conn, data []byte) {
 	_, err := con.Write(data)
 	if err != nil {
@@ -95,65 +91,16 @@ func WriteConn(con net.Conn, data []byte) {
 	}
 }
 
-func (a AuthExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+func (a AuthExecutor) Execute(cmds []string, con net.Conn, storage *storage.Storage) {
 	fmt.Println("Authenticating ", cmds[1])
 	WriteConn(con, []byte("+OK\r\n"))
 }
 
-func (s Storage) hasGreaterKeyID(key string, id string) bool {
-	currentID, err := resp.IdSplits(id)
-	if err != nil {
-		fmt.Println("Error parsing id: ", err.Error())
-		return false
-	}
-
-	if _, ok := s.Streams.Load(key); !ok {
-		return false
-	}
-
-	some, _ := s.Streams.Load(key)
-	stream := some.(*list.List)
-	if stream == nil {
-		return false
-	}
-	if stream.Len() == 0 {
-		return false
-	}
-
-	streamAsList := stream.Front()
-	//fmt.Printf("Current stream state %t\n", streamAsList)
-
-	if streamAsList == nil || streamAsList.Value == nil {
-		fmt.Println("streamAsList is empty")
-		return false
-	}
-
-	for item, ok := streamAsList.Value.(**resp.Entry); ok; item, ok = streamAsList.Next().Value.(**resp.Entry) {
-		id, err := (**item).IdSplits()
-		//fmt.Println("Comparing ", id, " to ", currentID)
-		if err != nil {
-			fmt.Println("Error parsing id: ", err.Error())
-			return false
-		}
-		if id.Gt(currentID) {
-			fmt.Println("Found greater key id at ", id)
-			return true
-		}
-
-		if streamAsList.Next() == nil {
-			//fmt.Println("Reached end of stream")
-			break
-		}
-	}
-
-	return false
-}
-
-func (p PingExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+func (p PingExecutor) Execute(cmds []string, con net.Conn, storage *storage.Storage) {
 	WriteConn(con, []byte("+PONG\r\n"))
 }
 
-func (s SetExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+func (s SetExecutor) Execute(cmds []string, con net.Conn, storage *storage.Storage) {
 	fmt.Println("Setting ", cmds[1], " to ", cmds[2])
 	argSize := len(cmds)
 	var expiryMs int64
@@ -180,55 +127,36 @@ func (s SetExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	} else {
 		expiryMs = -1
 	}
-	storage.Singles.Store(cmds[1], resp.Value{cmds[2], expiryMs})
+	storage.SinglesStore(cmds[1], resp.Value{cmds[2], expiryMs})
 	fmt.Println("Storage: ", storage)
 	WriteConn(con, []byte("+OK\r\n"))
 }
 
-func (g GetExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+func (g GetExecutor) Execute(cmds []string, con net.Conn, storage *storage.Storage) {
 	fmt.Println("Getting ", cmds[1])
 	fmt.Println("Storage: ", storage)
-	if v, ok := storage.Singles.Load(cmds[1]); !ok {
+	if v, ok := storage.SinglesLoad(cmds[1]); !ok {
 		WriteConn(con, []byte("$-1\r\n"))
 	} else {
 		WriteConn(con, resp.EncodeBulkString(v.(resp.Value).Name))
 	}
 }
 
-func (e EchoExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+func (e EchoExecutor) Execute(cmds []string, con net.Conn, storage *storage.Storage) {
 	WriteConn(con, resp.EncodeBulkString(cmds[1]))
 }
 
-func (r RPushExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
-	response := pushItems("R", cmds, &storage.Lists)
+func (r RPushExecutor) Execute(cmds []string, con net.Conn, storage *storage.Storage) {
+	response := storage.PushItems("R", cmds)
 	WriteConn(con, response)
 }
 
-func (r LPushExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
-	response := pushItems("L", cmds, &storage.Lists)
+func (r LPushExecutor) Execute(cmds []string, con net.Conn, storage *storage.Storage) {
+	response := storage.PushItems("L", cmds)
 	WriteConn(con, response)
 }
 
-func pushItems(from string, cmds []string, listStorage *sync.Map) []byte {
-	fmt.Println("Pushing ", cmds[2], " to ", cmds[1])
-	l, _ := listStorage.LoadOrStore(cmds[1], list.New())
-	l2 := l.(*list.List)
-	for _, item := range cmds[2:] {
-
-		switch from {
-		case "R":
-			_ = l2.PushBack(resp.Value{item, -1})
-		case "L":
-			_ = l2.PushFront(resp.Value{item, -1})
-		default:
-			_ = l2.PushBack(resp.Value{item, -1})
-
-		}
-	}
-	return resp.IntegersParser{}.Encode(int64(l2.Len()))
-}
-
-func (l LRangeExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+func (l LRangeExecutor) Execute(cmds []string, con net.Conn, storage *storage.Storage) {
 	fmt.Println("Getting range ", cmds[2], " to ", cmds[3], " from ", cmds[1])
 	from, err := strconv.Atoi(cmds[2])
 	if err != nil {
@@ -290,7 +218,7 @@ func scan(l *list.List, from, to int) (e *list.List) {
 	return elems
 }
 
-func (l LLenExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+func (l LLenExecutor) Execute(cmds []string, con net.Conn, storage *storage.Storage) {
 	l2, _ := storage.Lists.Load(cmds[1])
 	if l2 == nil {
 		l2 = list.New()
@@ -298,7 +226,7 @@ func (l LLenExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	WriteConn(con, resp.IntegersParser{}.Encode(int64(l2.(*list.List).Len())))
 }
 
-func (l LPopExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+func (l LPopExecutor) Execute(cmds []string, con net.Conn, storage *storage.Storage) {
 	if l2, ok := storage.Lists.Load(cmds[1]); ok && l2.(*list.List) != nil && l2.(*list.List).Len() > 0 {
 		if len(cmds) == 2 {
 			l3 := l2.(*list.List)
@@ -364,7 +292,7 @@ func (l LPopExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 
 }
 
-func (l BLPopExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+func (l BLPopExecutor) Execute(cmds []string, con net.Conn, storage *storage.Storage) {
 	if len(cmds) == 3 {
 		timeout, err := strconv.ParseFloat(strings.Trim(cmds[2], "\r\n"), 64)
 		if err != nil {
@@ -413,9 +341,9 @@ func (l BLPopExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	}
 }
 
-func (t TypeExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+func (t TypeExecutor) Execute(cmds []string, con net.Conn, storage *storage.Storage) {
 	fmt.Println("Getting type of ", cmds[1])
-	if _, ok := storage.Singles.Load(cmds[1]); ok {
+	if _, ok := storage.SinglesLoad(cmds[1]); ok {
 		WriteConn(con, resp.EncodeSimpleString("string"))
 	} else if _, ok := storage.Lists.Load(cmds[1]); ok {
 		WriteConn(con, resp.EncodeSimpleString("list"))
@@ -426,7 +354,7 @@ func (t TypeExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	}
 }
 
-func (x XAddExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+func (x XAddExecutor) Execute(cmds []string, con net.Conn, storage *storage.Storage) {
 	fmt.Println("XAdd to streams ", cmds[1])
 	stream, _ := storage.Streams.LoadOrStore(cmds[1], list.New())
 	streamAsList := stream.(*list.List)
@@ -545,7 +473,7 @@ func idExtractor(s string) (resp.ID, error) {
 
 }
 
-func (x XRangeExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+func (x XRangeExecutor) Execute(cmds []string, con net.Conn, storage *storage.Storage) {
 	key := cmds[1]
 	if values, ok := storage.Streams.Load(key); ok {
 
@@ -580,7 +508,7 @@ func (x XRangeExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 
 }
 
-func (x XReadExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+func (x XReadExecutor) Execute(cmds []string, con net.Conn, storage *storage.Storage) {
 	fmt.Println("XRead from streams ", cmds[1])
 	switch strings.ToUpper(cmds[1]) {
 	case "BLOCK":
@@ -591,7 +519,7 @@ func (x XReadExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 		}
 
 		if cmds[5] == "$" {
-			if storage.hasGreaterKeyID(cmds[4], "0-0") {
+			if storage.HasGreaterKeyID(cmds[4], "0-0") {
 				items, _ := storage.Streams.Load(cmds[4])
 				id := items.(*list.List).Back().Value.(**resp.Entry)
 				cmds[5] = (*id).ID
@@ -607,7 +535,7 @@ func (x XReadExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 			waitchan := make(chan bool)
 			go func() {
 				for true {
-					if storage.hasGreaterKeyID(cmds[4], cmds[5]) {
+					if storage.HasGreaterKeyID(cmds[4], cmds[5]) {
 						waitchan <- true
 						break
 					}
@@ -627,7 +555,7 @@ func (x XReadExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 		timeAfter := time.After(time.Millisecond * time.Duration(timeout))
 		go func() {
 			for true {
-				if storage.hasGreaterKeyID(cmds[4], cmds[5]) {
+				if storage.HasGreaterKeyID(cmds[4], cmds[5]) {
 					waitchan <- true
 					break
 				}
@@ -654,7 +582,7 @@ func (x XReadExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 	}
 }
 
-func (x XReadExecutor) ExecuteRead(cmds []string, con net.Conn, storage *Storage, includeStart bool) {
+func (x XReadExecutor) ExecuteRead(cmds []string, con net.Conn, storage *storage.Storage, includeStart bool) {
 	totalKeyCount := len(cmds[2:]) / 2
 	backIndex := len(cmds) - 1
 	totalKeys := fmt.Sprintf("*%d%s", totalKeyCount, resp.CRLF)
@@ -726,10 +654,10 @@ func extractResultsBetweenIds(entries *list.List, from, to resp.ID, includeStart
 	return result, nil
 }
 
-func (x IncrExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+func (x IncrExecutor) Execute(cmds []string, con net.Conn, storage *storage.Storage) {
 	fmt.Println("Incr ", cmds[1])
 	intParser := resp.IntegersParser{}
-	if value, ok := storage.Singles.Load(cmds[1]); ok {
+	if value, ok := storage.SinglesLoad(cmds[1]); ok {
 
 		valueInt, err := strconv.ParseInt(value.(resp.Value).Name, 10, 64)
 		if err != nil {
@@ -737,17 +665,17 @@ func (x IncrExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 			WriteConn(con, resp.EncodeError("ERR value is not an integer or out of range"))
 			return
 		}
-		storage.Singles.Store(cmds[1], resp.Value{fmt.Sprintf("%d", valueInt+1), value.(resp.Value).Expiry})
+		storage.SinglesStore(cmds[1], resp.Value{fmt.Sprintf("%d", valueInt+1), value.(resp.Value).Expiry})
 		var newInt = valueInt + 1
 		WriteConn(con, intParser.Encode(newInt))
 
 	} else {
-		storage.Singles.Store(cmds[1], resp.Value{"1", -1})
+		storage.SinglesStore(cmds[1], resp.Value{"1", -1})
 		WriteConn(con, intParser.Encode(1))
 	}
 }
 
-func (m MultiExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+func (m MultiExecutor) Execute(cmds []string, con net.Conn, storage *storage.Storage) {
 
 	WriteConn(con, resp.EncodeSimpleString("OK"))
 
@@ -797,10 +725,14 @@ func (m MultiExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
 
 }
 
-func (x ExecExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+func (x ExecExecutor) Execute(cmds []string, con net.Conn, storage *storage.Storage) {
 	WriteConn(con, resp.EncodeError("ERR EXEC without MULTI"))
 }
 
-func (x DiscardExecutor) Execute(cmds []string, con net.Conn, storage *Storage) {
+func (x DiscardExecutor) Execute(cmds []string, con net.Conn, storage *storage.Storage) {
 	WriteConn(con, resp.EncodeError("ERR DISCARD without MULTI"))
+}
+
+func (w WatchExecutor) Execute(cmds []string, con net.Conn, storage *storage.Storage) {
+	WriteConn(con, resp.EncodeSimpleString("OK"))
 }
